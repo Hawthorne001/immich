@@ -2,12 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:immich_mobile/extensions/build_context_extensions.dart';
+import 'package:immich_mobile/extensions/theme_extensions.dart';
 import 'package:immich_mobile/providers/upload_profile_image.provider.dart';
 import 'package:immich_mobile/entities/store.entity.dart';
 import 'package:immich_mobile/providers/user.provider.dart';
 import 'package:immich_mobile/widgets/common/user_circle_avatar.dart';
-import 'package:immich_mobile/models/authentication/authentication_state.model.dart';
-import 'package:immich_mobile/providers/authentication.provider.dart';
+import 'package:immich_mobile/providers/auth.provider.dart';
 import 'package:immich_mobile/widgets/common/immich_loading_indicator.dart';
 
 class AppBarProfileInfoBox extends HookConsumerWidget {
@@ -17,7 +17,7 @@ class AppBarProfileInfoBox extends HookConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    AuthenticationState authState = ref.watch(authenticationProvider);
+    final authState = ref.watch(authProvider);
     final uploadProfileImageStatus =
         ref.watch(uploadProfileImageProvider).status;
     final user = Store.tryGet(StoreKey.currentUser);
@@ -62,7 +62,7 @@ class AppBarProfileInfoBox extends HookConsumerWidget {
         if (success) {
           final profileImagePath =
               ref.read(uploadProfileImageProvider).profileImagePath;
-          ref.watch(authenticationProvider.notifier).updateUserProfileImagePath(
+          ref.watch(authProvider.notifier).updateUserProfileImagePath(
                 profileImagePath,
               );
           if (user != null) {
@@ -79,9 +79,7 @@ class AppBarProfileInfoBox extends HookConsumerWidget {
       child: Container(
         width: double.infinity,
         decoration: BoxDecoration(
-          color: context.isDarkTheme
-              ? context.scaffoldBackgroundColor
-              : const Color.fromARGB(255, 225, 229, 240),
+          color: context.colorScheme.surface,
           borderRadius: const BorderRadius.only(
             topLeft: Radius.circular(10),
             topRight: Radius.circular(10),
@@ -99,9 +97,7 @@ class AppBarProfileInfoBox extends HookConsumerWidget {
                   bottom: -5,
                   right: -8,
                   child: Material(
-                    color: context.isDarkTheme
-                        ? Colors.blueGrey[800]
-                        : Colors.white,
+                    color: context.colorScheme.surfaceContainerHighest,
                     elevation: 3,
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(50.0),
@@ -129,7 +125,7 @@ class AppBarProfileInfoBox extends HookConsumerWidget {
           subtitle: Text(
             authState.userEmail,
             style: context.textTheme.bodySmall?.copyWith(
-              color: context.textTheme.bodySmall?.color?.withAlpha(200),
+              color: context.colorScheme.onSurfaceSecondary,
             ),
           ),
         ),

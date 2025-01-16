@@ -4,13 +4,14 @@ import 'package:collection/collection.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
-import 'package:immich_mobile/providers/authentication.provider.dart';
+import 'package:immich_mobile/providers/auth.provider.dart';
 import 'package:immich_mobile/entities/asset.entity.dart';
 import 'package:immich_mobile/models/server_info/server_version.model.dart';
 import 'package:immich_mobile/entities/store.entity.dart';
 import 'package:immich_mobile/providers/asset.provider.dart';
 import 'package:immich_mobile/providers/db.provider.dart';
 import 'package:immich_mobile/providers/server_info.provider.dart';
+import 'package:immich_mobile/services/api.service.dart';
 import 'package:immich_mobile/services/sync.service.dart';
 import 'package:immich_mobile/utils/debounce.dart';
 import 'package:logging/logging.dart';
@@ -102,13 +103,12 @@ class WebsocketNotifier extends StateNotifier<WebsocketState> {
   /// Connects websocket to server unless already connected
   void connect() {
     if (state.isConnected) return;
-    final authenticationState = _ref.read(authenticationProvider);
+    final authenticationState = _ref.read(authProvider);
 
     if (authenticationState.isAuthenticated) {
-      final accessToken = Store.get(StoreKey.accessToken);
       try {
         final endpoint = Uri.parse(Store.get(StoreKey.serverEndpoint));
-        final headers = {"x-immich-user-token": accessToken};
+        final headers = ApiService.getRequestHeaders();
         if (endpoint.userInfo.isNotEmpty) {
           headers["Authorization"] =
               "Basic ${base64.encode(utf8.encode(endpoint.userInfo))}";

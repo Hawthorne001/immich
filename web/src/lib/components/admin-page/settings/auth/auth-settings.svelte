@@ -2,31 +2,34 @@
   import ConfirmDialog from '$lib/components/shared-components/dialog/confirm-dialog.svelte';
   import SettingAccordion from '$lib/components/shared-components/settings/setting-accordion.svelte';
   import SettingButtonsRow from '$lib/components/shared-components/settings/setting-buttons-row.svelte';
-  import SettingInputField, {
-    SettingInputFieldType,
-  } from '$lib/components/shared-components/settings/setting-input-field.svelte';
+  import SettingInputField from '$lib/components/shared-components/settings/setting-input-field.svelte';
   import SettingSwitch from '$lib/components/shared-components/settings/setting-switch.svelte';
   import { type SystemConfigDto } from '@immich/sdk';
   import { isEqual } from 'lodash-es';
-  import { createEventDispatcher } from 'svelte';
   import { fade } from 'svelte/transition';
-  import type { SettingsEventType } from '../admin-settings';
+  import type { SettingsResetEvent, SettingsSaveEvent } from '../admin-settings';
   import { t } from 'svelte-i18n';
+  import FormatMessage from '$lib/components/i18n/format-message.svelte';
+  import { SettingInputFieldType } from '$lib/constants';
 
-  export let savedConfig: SystemConfigDto;
-  export let defaultConfig: SystemConfigDto;
-  export let config: SystemConfigDto; // this is the config that is being edited
-  export let disabled = false;
+  interface Props {
+    savedConfig: SystemConfigDto;
+    defaultConfig: SystemConfigDto;
+    config: SystemConfigDto;
+    disabled?: boolean;
+    onReset: SettingsResetEvent;
+    onSave: SettingsSaveEvent;
+  }
 
-  const dispatch = createEventDispatcher<SettingsEventType>();
+  let { savedConfig, defaultConfig, config = $bindable(), disabled = false, onReset, onSave }: Props = $props();
 
-  let isConfirmOpen = false;
+  let isConfirmOpen = $state(false);
 
   const handleToggleOverride = () => {
     // click runs before bind
     const previouslyEnabled = config.oauth.mobileOverrideEnabled;
     if (!previouslyEnabled && !config.oauth.mobileRedirectUri) {
-      config.oauth.mobileRedirectUri = window.location.origin + '/api/oauth/mobile-redirect';
+      config.oauth.mobileRedirectUri = globalThis.location.origin + '/api/oauth/mobile-redirect';
     }
   };
 
@@ -38,7 +41,7 @@
     }
 
     isConfirmOpen = false;
-    dispatch('save', { passwordLogin: config.passwordLogin, oauth: config.oauth });
+    onSave({ passwordLogin: config.passwordLogin, oauth: config.oauth });
   };
 </script>
 
@@ -48,29 +51,32 @@
     onCancel={() => (isConfirmOpen = false)}
     onConfirm={() => handleSave(true)}
   >
-    <svelte:fragment slot="prompt">
+    {#snippet promptSnippet()}
       <div class="flex flex-col gap-4">
-        <p>Are you sure you want to disable all login methods? Login will be completely disabled.</p>
+        <p>{$t('admin.authentication_settings_disable_all')}</p>
         <p>
-          To re-enable, use a
-          <a
-            href="https://immich.app/docs/administration/server-commands"
-            rel="noreferrer"
-            target="_blank"
-            class="underline"
-          >
-            Server Command</a
-          >.
+          <FormatMessage key="admin.authentication_settings_reenable">
+            {#snippet children({ message })}
+              <a
+                href="https://immich.app/docs/administration/server-commands"
+                rel="noreferrer"
+                target="_blank"
+                class="underline"
+              >
+                {message}
+              </a>
+            {/snippet}
+          </FormatMessage>
         </p>
       </div>
-    </svelte:fragment>
+    {/snippet}
   </ConfirmDialog>
 {/if}
 
 <div>
   <div in:fade={{ duration: 500 }}>
-    <form autocomplete="off" on:submit|preventDefault>
-      <div class="ml-4 mt-4 flex flex-col gap-4">
+    <form autocomplete="off" onsubmit={(e) => e.preventDefault()}>
+      <div class="ml-4 mt-4 flex flex-col">
         <SettingAccordion
           key="oauth"
           title={$t('admin.oauth_settings')}
@@ -78,18 +84,23 @@
         >
           <div class="ml-4 mt-4 flex flex-col gap-4">
             <p class="text-sm dark:text-immich-dark-fg">
-              For more details about this feature, refer to the <a
-                href="https://immich.app/docs/administration/oauth"
-                class="underline"
-                target="_blank"
-                rel="noreferrer">docs</a
-              >.
+              <FormatMessage key="admin.oauth_settings_more_details">
+                {#snippet children({ message })}
+                  <a
+                    href="https://immich.app/docs/administration/oauth"
+                    class="underline"
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    {message}
+                  </a>
+                {/snippet}
+              </FormatMessage>
             </p>
 
             <SettingSwitch
               {disabled}
-              title={$t('enable').toUpperCase()}
-              subtitle={$t('admin.oauth_enable_description')}
+              title={$t('admin.oauth_enable_description')}
               bind:checked={config.oauth.enabled}
             />
 
@@ -142,8 +153,18 @@
 
               <SettingInputField
                 inputType={SettingInputFieldType.TEXT}
+                label={$t('admin.oauth_profile_signing_algorithm').toUpperCase()}
+                description={$t('admin.oauth_profile_signing_algorithm_description')}
+                bind:value={config.oauth.profileSigningAlgorithm}
+                required={true}
+                disabled={disabled || !config.oauth.enabled}
+                isEdited={!(config.oauth.profileSigningAlgorithm == savedConfig.oauth.profileSigningAlgorithm)}
+              />
+
+              <SettingInputField
+                inputType={SettingInputFieldType.TEXT}
                 label={$t('admin.oauth_storage_label_claim').toUpperCase()}
-                desc={$t('admin.oauth_storage_label_claim_description')}
+                description={$t('admin.oauth_storage_label_claim_description')}
                 bind:value={config.oauth.storageLabelClaim}
                 required={true}
                 disabled={disabled || !config.oauth.enabled}
@@ -153,7 +174,7 @@
               <SettingInputField
                 inputType={SettingInputFieldType.TEXT}
                 label={$t('admin.oauth_storage_quota_claim').toUpperCase()}
-                desc={$t('admin.oauth_storage_quota_claim_description')}
+                description={$t('admin.oauth_storage_quota_claim_description')}
                 bind:value={config.oauth.storageQuotaClaim}
                 required={true}
                 disabled={disabled || !config.oauth.enabled}
@@ -163,7 +184,7 @@
               <SettingInputField
                 inputType={SettingInputFieldType.NUMBER}
                 label={$t('admin.oauth_storage_quota_default').toUpperCase()}
-                desc={$t('admin.oauth_storage_quota_default_description')}
+                description={$t('admin.oauth_storage_quota_default_description')}
                 bind:value={config.oauth.defaultStorageQuota}
                 required={true}
                 disabled={disabled || !config.oauth.enabled}
@@ -195,9 +216,11 @@
 
               <SettingSwitch
                 title={$t('admin.oauth_mobile_redirect_uri_override').toUpperCase()}
-                subtitle={$t('admin.oauth_mobile_redirect_uri_override_description')}
+                subtitle={$t('admin.oauth_mobile_redirect_uri_override_description', {
+                  values: { callback: 'app.immich:///oauth-callback' },
+                })}
                 disabled={disabled || !config.oauth.enabled}
-                on:click={() => handleToggleOverride()}
+                onToggle={() => handleToggleOverride()}
                 bind:checked={config.oauth.mobileOverrideEnabled}
               />
 
@@ -223,9 +246,8 @@
           <div class="ml-4 mt-4 flex flex-col gap-4">
             <div class="ml-4 mt-4 flex flex-col">
               <SettingSwitch
-                title={$t('enabled')}
+                title={$t('admin.password_enable_description')}
                 {disabled}
-                subtitle={$t('admin.password_enable_description')}
                 bind:checked={config.passwordLogin.enabled}
               />
             </div>
@@ -236,8 +258,8 @@
           showResetToDefault={!isEqual(savedConfig.passwordLogin, defaultConfig.passwordLogin) ||
             !isEqual(savedConfig.oauth, defaultConfig.oauth)}
           {disabled}
-          on:reset={({ detail }) => dispatch('reset', { ...detail, configKeys: ['passwordLogin', 'oauth'] })}
-          on:save={() => handleSave(false)}
+          onReset={(options) => onReset({ ...options, configKeys: ['passwordLogin', 'oauth'] })}
+          onSave={() => handleSave(false)}
         />
       </div>
     </form>

@@ -4,16 +4,13 @@
   import Button from '../elements/buttons/button.svelte';
   import FullScreenModal from './full-screen-modal.svelte';
   import { t } from 'svelte-i18n';
+  import FormatMessage from '$lib/components/i18n/format-message.svelte';
 
-  let showModal = false;
+  let showModal = $state(false);
 
   const { release } = websocketStore;
 
   const semverToName = ({ major, minor, patch }: ServerVersionResponseDto) => `v${major}.${minor}.${patch}`;
-
-  $: releaseVersion = $release && semverToName($release.releaseVersion);
-  $: serverVersion = $release && semverToName($release.serverVersion);
-  $: $release?.isAvailable && handleRelease();
 
   const onAcknowledge = () => {
     localStorage.setItem('appVersion', releaseVersion);
@@ -31,31 +28,43 @@
       console.error('Error [VersionAnnouncementBox]:', error);
     }
   };
+  let releaseVersion = $derived($release && semverToName($release.releaseVersion));
+  let serverVersion = $derived($release && semverToName($release.serverVersion));
+  $effect(() => {
+    if ($release?.isAvailable) {
+      handleRelease();
+    }
+  });
 </script>
 
 {#if showModal}
-  <FullScreenModal title="🎉 NEW VERSION AVAILABLE" onClose={() => (showModal = false)}>
+  <FullScreenModal title="🎉 {$t('new_version_available')}" onClose={() => (showModal = false)}>
     <div>
-      Hi friend, there is a new version of the application please take your time to visit the
-      <span class="font-medium underline"
-        ><a href="https://github.com/immich-app/immich/releases/latest" target="_blank" rel="noopener noreferrer"
-          >release notes</a
-        ></span
-      >
-      and ensure your <code>docker-compose</code>, and <code>.env</code> setup is up-to-date to prevent any misconfigurations,
-      especially if you use WatchTower or any mechanism that handles updating your application automatically.
+      <FormatMessage key="version_announcement_message">
+        {#snippet children({ tag, message })}
+          {#if tag === 'link'}
+            <span class="font-medium underline">
+              <a href="https://github.com/immich-app/immich/releases/latest" target="_blank" rel="noopener noreferrer">
+                {message}
+              </a>
+            </span>
+          {:else if tag === 'code'}
+            <code>{message}</code>
+          {/if}
+        {/snippet}
+      </FormatMessage>
     </div>
 
-    <div class="mt-4 font-medium">Your friend, Alex</div>
+    <div class="mt-4 font-medium">{$t('version_announcement_closing')}</div>
 
     <div class="font-sm mt-8">
-      <code>Server Version: {serverVersion}</code>
+      <code>{$t('server_version')}: {serverVersion}</code>
       <br />
-      <code>Latest Version: {releaseVersion}</code>
+      <code>{$t('latest_version')}: {releaseVersion}</code>
     </div>
 
-    <svelte:fragment slot="sticky-bottom">
-      <Button fullwidth on:click={onAcknowledge}>{$t('acknowledge')}</Button>
-    </svelte:fragment>
+    {#snippet stickyBottom()}
+      <Button fullwidth onclick={onAcknowledge}>{$t('acknowledge')}</Button>
+    {/snippet}
   </FullScreenModal>
 {/if}

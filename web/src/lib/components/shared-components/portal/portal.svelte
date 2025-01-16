@@ -1,6 +1,6 @@
-<script context="module" lang="ts">
+<script module lang="ts">
   import { handlePromiseError } from '$lib/utils';
-  import { tick } from 'svelte';
+  import { tick, type Snippet } from 'svelte';
 
   /**
    * Usage: <div use:portal={'css selector'}> or <div use:portal={document.body}>
@@ -45,13 +45,36 @@
   }
 </script>
 
+<!--
+@component
+Allow rendering a component in a different part of the DOM.
+
+### Props
+- `target` - HTMLElement i.e "body", "html", default is "body"
+
+### Default Slot
+Used for every occurrence of an HTML tag in a message
+- `tag` - Name of the tag
+
+@example
+```html
+<Portal target="body">
+  <p>Your component in here</p>
+</Portal>
+```
+-->
 <script lang="ts">
-  /**
-   * DOM Element or CSS Selector
-   */
-  export let target: HTMLElement | string = 'body';
+  interface Props {
+    /**
+     * DOM Element or CSS Selector
+     */
+    target?: HTMLElement | string;
+    children?: Snippet;
+  }
+
+  let { target = 'body', children }: Props = $props();
 </script>
 
 <div use:portal={target} hidden>
-  <slot />
+  {@render children?.()}
 </div>

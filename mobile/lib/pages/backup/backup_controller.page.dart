@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_hooks/flutter_hooks.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:immich_mobile/extensions/build_context_extensions.dart';
+import 'package:immich_mobile/extensions/theme_extensions.dart';
 import 'package:immich_mobile/models/backup/backup_state.model.dart';
 import 'package:immich_mobile/providers/album/album.provider.dart';
 import 'package:immich_mobile/providers/backup/backup.provider.dart';
@@ -17,6 +18,7 @@ import 'package:immich_mobile/providers/websocket.provider.dart';
 import 'package:immich_mobile/routing/router.dart';
 import 'package:immich_mobile/widgets/backup/backup_info_card.dart';
 import 'package:immich_mobile/widgets/backup/current_backup_asset_info_box.dart';
+import 'package:wakelock_plus/wakelock_plus.dart';
 
 @RoutePage()
 class BackupControllerPage extends HookConsumerWidget {
@@ -27,6 +29,7 @@ class BackupControllerPage extends HookConsumerWidget {
     BackUpState backupState = ref.watch(backupProvider);
     final hasAnyAlbum = backupState.selectedBackupAlbums.isNotEmpty;
     final didGetBackupInfo = useState(false);
+
     bool hasExclusiveAccess =
         backupState.backupProgress != BackUpProgressEnum.inBackground;
     bool shouldBackup = backupState.allUniqueAssets.length -
@@ -48,7 +51,10 @@ class BackupControllerPage extends HookConsumerWidget {
         ref
             .watch(websocketProvider.notifier)
             .stopListenToEvent('on_upload_success');
-        return null;
+
+        return () {
+          WakelockPlus.disable();
+        };
       },
       [],
     );
@@ -60,6 +66,19 @@ class BackupControllerPage extends HookConsumerWidget {
           ref.watch(backupProvider.notifier).getBackupInfo();
           didGetBackupInfo.value = true;
         }
+        return null;
+      },
+      [backupState.backupProgress],
+    );
+
+    useEffect(
+      () {
+        if (backupState.backupProgress == BackUpProgressEnum.inProgress) {
+          WakelockPlus.enable();
+        } else {
+          WakelockPlus.disable();
+        }
+
         return null;
       },
       [backupState.backupProgress],
@@ -130,9 +149,7 @@ class BackupControllerPage extends HookConsumerWidget {
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(20),
             side: BorderSide(
-              color: context.isDarkTheme
-                  ? const Color.fromARGB(255, 56, 56, 56)
-                  : Colors.black12,
+              color: context.colorScheme.outlineVariant,
               width: 1,
             ),
           ),
@@ -151,7 +168,9 @@ class BackupControllerPage extends HookConsumerWidget {
                 children: [
                   Text(
                     "backup_controller_page_to_backup",
-                    style: context.textTheme.bodyMedium,
+                    style: context.textTheme.bodyMedium?.copyWith(
+                      color: context.colorScheme.onSurfaceSecondary,
+                    ),
                   ).tr(),
                   buildSelectedAlbumName(),
                   buildExcludedAlbumName(),
@@ -166,7 +185,7 @@ class BackupControllerPage extends HookConsumerWidget {
                     .read(backupProvider.notifier)
                     .backupAlbumSelectionDone();
                 // waited until backup albums are stored in DB
-                ref.read(albumProvider.notifier).getDeviceAlbums();
+                ref.read(albumProvider.notifier).refreshDeviceAlbums();
               },
               child: const Text(
                 "backup_controller_page_select",
@@ -280,44 +299,48 @@ class BackupControllerPage extends HookConsumerWidget {
           ),
         ],
       ),
-      body: Padding(
-        padding: const EdgeInsets.only(left: 16.0, right: 16, bottom: 32),
-        child: ListView(
-          // crossAxisAlignment: CrossAxisAlignment.start,
-          children: hasAnyAlbum
-              ? [
-                  buildFolderSelectionTile(),
-                  BackupInfoCard(
-                    title: "backup_controller_page_total".tr(),
-                    subtitle: "backup_controller_page_total_sub".tr(),
-                    info: ref.watch(backupProvider).availableAlbums.isEmpty
-                        ? "..."
-                        : "${backupState.allUniqueAssets.length}",
-                  ),
-                  BackupInfoCard(
-                    title: "backup_controller_page_backup".tr(),
-                    subtitle: "backup_controller_page_backup_sub".tr(),
-                    info: ref.watch(backupProvider).availableAlbums.isEmpty
-                        ? "..."
-                        : "${backupState.selectedAlbumsBackupAssetsIds.length}",
-                  ),
-                  BackupInfoCard(
-                    title: "backup_controller_page_remainder".tr(),
-                    subtitle: "backup_controller_page_remainder_sub".tr(),
-                    info: ref.watch(backupProvider).availableAlbums.isEmpty
-                        ? "..."
-                        : "${max(0, backupState.allUniqueAssets.length - backupState.selectedAlbumsBackupAssetsIds.length)}",
-                  ),
-                  const Divider(),
-                  const CurrentUploadingAssetInfoBox(),
-                  if (!hasExclusiveAccess) buildBackgroundBackupInfo(),
-                  buildBackupButton(),
-                ]
-              : [
-                  buildFolderSelectionTile(),
-                  if (!didGetBackupInfo.value) buildLoadingIndicator(),
-                ],
-        ),
+      body: Stack(
+        children: [
+          Padding(
+            padding: const EdgeInsets.only(left: 16.0, right: 16, bottom: 32),
+            child: ListView(
+              // crossAxisAlignment: CrossAxisAlignment.start,
+              children: hasAnyAlbum
+                  ? [
+                      buildFolderSelectionTile(),
+                      BackupInfoCard(
+                        title: "backup_controller_page_total".tr(),
+                        subtitle: "backup_controller_page_total_sub".tr(),
+                        info: ref.watch(backupProvider).availableAlbums.isEmpty
+                            ? "..."
+                            : "${backupState.allUniqueAssets.length}",
+                      ),
+                      BackupInfoCard(
+                        title: "backup_controller_page_backup".tr(),
+                        subtitle: "backup_controller_page_backup_sub".tr(),
+                        info: ref.watch(backupProvider).availableAlbums.isEmpty
+                            ? "..."
+                            : "${backupState.selectedAlbumsBackupAssetsIds.length}",
+                      ),
+                      BackupInfoCard(
+                        title: "backup_controller_page_remainder".tr(),
+                        subtitle: "backup_controller_page_remainder_sub".tr(),
+                        info: ref.watch(backupProvider).availableAlbums.isEmpty
+                            ? "..."
+                            : "${max(0, backupState.allUniqueAssets.length - backupState.selectedAlbumsBackupAssetsIds.length)}",
+                      ),
+                      const Divider(),
+                      const CurrentUploadingAssetInfoBox(),
+                      if (!hasExclusiveAccess) buildBackgroundBackupInfo(),
+                      buildBackupButton(),
+                    ]
+                  : [
+                      buildFolderSelectionTile(),
+                      if (!didGetBackupInfo.value) buildLoadingIndicator(),
+                    ],
+            ),
+          ),
+        ],
       ),
     );
   }

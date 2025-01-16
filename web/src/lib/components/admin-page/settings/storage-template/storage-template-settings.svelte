@@ -1,6 +1,9 @@
 <script lang="ts">
+  import { createBubbler, preventDefault } from 'svelte/legacy';
+
+  const bubble = createBubbler();
   import LoadingSpinner from '$lib/components/shared-components/loading-spinner.svelte';
-  import { AppRoute } from '$lib/constants';
+  import { AppRoute, SettingInputFieldType } from '$lib/constants';
   import { user } from '$lib/stores/user.store';
   import {
     getStorageTemplateOptions,
@@ -10,27 +13,43 @@
   import handlebar from 'handlebars';
   import { isEqual } from 'lodash-es';
   import * as luxon from 'luxon';
-  import { createEventDispatcher } from 'svelte';
   import { fade } from 'svelte/transition';
-  import type { SettingsEventType } from '../admin-settings';
+  import type { SettingsResetEvent, SettingsSaveEvent } from '../admin-settings';
   import SupportedDatetimePanel from './supported-datetime-panel.svelte';
   import SupportedVariablesPanel from './supported-variables-panel.svelte';
   import SettingButtonsRow from '$lib/components/shared-components/settings/setting-buttons-row.svelte';
-  import SettingInputField, {
-    SettingInputFieldType,
-  } from '$lib/components/shared-components/settings/setting-input-field.svelte';
+  import SettingInputField from '$lib/components/shared-components/settings/setting-input-field.svelte';
   import SettingSwitch from '$lib/components/shared-components/settings/setting-switch.svelte';
   import { t } from 'svelte-i18n';
+  import FormatMessage from '$lib/components/i18n/format-message.svelte';
+  import type { Snippet } from 'svelte';
 
-  export let savedConfig: SystemConfigDto;
-  export let defaultConfig: SystemConfigDto;
-  export let config: SystemConfigDto; // this is the config that is being edited
-  export let disabled = false;
-  export let minified = false;
+  interface Props {
+    savedConfig: SystemConfigDto;
+    defaultConfig: SystemConfigDto;
+    config: SystemConfigDto;
+    disabled?: boolean;
+    minified?: boolean;
+    onReset: SettingsResetEvent;
+    onSave: SettingsSaveEvent;
+    duration?: number;
+    children?: Snippet;
+  }
 
-  const dispatch = createEventDispatcher<SettingsEventType>();
-  let templateOptions: SystemConfigTemplateStorageOptionDto;
-  let selectedPreset = '';
+  let {
+    savedConfig,
+    defaultConfig,
+    config = $bindable(),
+    disabled = false,
+    minified = false,
+    onReset,
+    onSave,
+    duration = 500,
+    children,
+  }: Props = $props();
+
+  let templateOptions: SystemConfigTemplateStorageOptionDto | undefined = $state();
+  let selectedPreset = $state('');
 
   const getTemplateOptions = async () => {
     templateOptions = await getStorageTemplateOptions();
@@ -39,15 +58,11 @@
 
   const getSupportDateTimeFormat = () => getStorageTemplateOptions();
 
-  $: parsedTemplate = () => {
-    try {
-      return renderTemplate(config.storageTemplate.template);
-    } catch {
-      return 'error';
-    }
-  };
-
   const renderTemplate = (templateString: string) => {
+    if (!templateOptions) {
+      return '';
+    }
+
     const template = handlebar.compile(templateString, {
       knownHelpers: undefined,
     });
@@ -83,41 +98,55 @@
   const handlePresetSelection = () => {
     config.storageTemplate.template = selectedPreset;
   };
+  let parsedTemplate = $derived(() => {
+    try {
+      return renderTemplate(config.storageTemplate.template);
+    } catch {
+      return 'error';
+    }
+  });
 </script>
 
 <section class="dark:text-immich-dark-fg mt-2">
-  <div in:fade={{ duration: 500 }} class="mx-4 flex flex-col gap-4 py-4">
+  <div in:fade={{ duration }} class="mx-4 flex flex-col gap-4 py-4">
     <p class="text-sm dark:text-immich-dark-fg">
-      For more details about this feature, refer to the <a
-        href="https://immich.app/docs/administration/storage-template"
-        class="underline"
-        target="_blank"
-        rel="noreferrer"
-        >Storage Template
-      </a>
-      and its
-      <a
-        href="https://immich.app/docs/administration/backup-and-restore#asset-types-and-storage-locations"
-        class="underline"
-        target="_blank"
-        rel="noreferrer"
-        >implications
-      </a>
+      <FormatMessage key="admin.storage_template_more_details">
+        {#snippet children({ tag, message })}
+          {#if tag === 'template-link'}
+            <a
+              href="https://immich.app/docs/administration/storage-template"
+              class="underline"
+              target="_blank"
+              rel="noreferrer"
+            >
+              {message}
+            </a>
+          {:else if tag === 'implications-link'}
+            <a
+              href="https://immich.app/docs/administration/backup-and-restore#asset-types-and-storage-locations"
+              class="underline"
+              target="_blank"
+              rel="noreferrer"
+            >
+              {message}
+            </a>
+          {/if}
+        {/snippet}
+      </FormatMessage>
     </p>
   </div>
   {#await getTemplateOptions() then}
     <div id="directory-path-builder" class="flex flex-col gap-4 {minified ? '' : 'ml-4 mt-4'}">
       <SettingSwitch
-        title={$t('enabled').toUpperCase()}
+        title={$t('admin.storage_template_enable_description')}
         {disabled}
-        subtitle={$t('admin.storage_template_enable_description')}
         bind:checked={config.storageTemplate.enabled}
         isEdited={!(config.storageTemplate.enabled === savedConfig.storageTemplate.enabled)}
       />
 
       {#if !minified}
         <SettingSwitch
-          title={$t('admin.storage_template_hash_verification_enabled').toUpperCase()}
+          title={$t('admin.storage_template_hash_verification_enabled')}
           {disabled}
           subtitle={$t('admin.storage_template_hash_verification_enabled_description')}
           bind:checked={config.storageTemplate.hashVerificationEnabled}
@@ -154,15 +183,22 @@
           </div>
 
           <p class="text-sm">
-            Approximately path length limit : <span
-              class="font-semibold text-immich-primary dark:text-immich-dark-primary"
-              >{parsedTemplate().length + $user.id.length + 'UPLOAD_LOCATION'.length}</span
-            >/260
+            <FormatMessage
+              key="admin.storage_template_path_length"
+              values={{ length: parsedTemplate().length + $user.id.length + 'UPLOAD_LOCATION'.length, limit: 260 }}
+            >
+              {#snippet children({ message })}
+                <span class="font-semibold text-immich-primary dark:text-immich-dark-primary">{message}</span>
+              {/snippet}
+            </FormatMessage>
           </p>
 
           <p class="text-sm">
-            <code class="text-immich-primary dark:text-immich-dark-primary">{$user.storageLabel || $user.id}</code> is the
-            user's Storage Label
+            <FormatMessage key="admin.storage_template_user_label" values={{ label: $user.storageLabel || $user.id }}>
+              {#snippet children({ message })}
+                <code class="text-immich-primary dark:text-immich-dark-primary">{message}</code>
+              {/snippet}
+            </FormatMessage>
           </p>
 
           <p class="p-4 py-2 mt-2 text-xs bg-gray-200 rounded-lg dark:bg-gray-700 dark:text-immich-dark-fg">
@@ -171,25 +207,33 @@
             >/{parsedTemplate()}.jpg
           </p>
 
-          <form autocomplete="off" class="flex flex-col" on:submit|preventDefault>
+          <form autocomplete="off" class="flex flex-col" onsubmit={preventDefault(bubble('submit'))}>
             <div class="flex flex-col my-2">
-              <label class="text-sm" for="preset-select">{$t('preset').toUpperCase()}</label>
-              <select
-                class="immich-form-input p-2 mt-2 text-sm rounded-lg bg-slate-200 hover:cursor-pointer dark:bg-gray-600"
-                disabled={disabled || !config.storageTemplate.enabled}
-                name="presets"
-                id="preset-select"
-                bind:value={selectedPreset}
-                on:change={handlePresetSelection}
-              >
-                {#each templateOptions.presetOptions as preset}
-                  <option value={preset}>{renderTemplate(preset)}</option>
-                {/each}
-              </select>
+              {#if templateOptions}
+                <label
+                  class="font-medium text-immich-primary dark:text-immich-dark-primary text-sm"
+                  for="preset-select"
+                >
+                  {$t('preset')}
+                </label>
+                <select
+                  class="immich-form-input p-2 mt-2 text-sm rounded-lg bg-slate-200 hover:cursor-pointer dark:bg-gray-600"
+                  disabled={disabled || !config.storageTemplate.enabled}
+                  name="presets"
+                  id="preset-select"
+                  bind:value={selectedPreset}
+                  onchange={handlePresetSelection}
+                >
+                  {#each templateOptions.presetOptions as preset}
+                    <option value={preset}>{renderTemplate(preset)}</option>
+                  {/each}
+                </select>
+              {/if}
             </div>
+
             <div class="flex gap-2 align-bottom">
               <SettingInputField
-                label={$t('template').toUpperCase()}
+                label={$t('template')}
                 disabled={disabled || !config.storageTemplate.enabled}
                 required
                 inputType={SettingInputFieldType.TEXT}
@@ -212,20 +256,16 @@
                 <h3 class="text-base font-medium text-immich-primary dark:text-immich-dark-primary">{$t('notes')}</h3>
                 <section class="flex flex-col gap-2">
                   <p>
-                    Template changes will only apply to new assets. To retroactively apply the template to previously
-                    uploaded assets, run the
-                    <a href={AppRoute.ADMIN_JOBS} class="text-immich-primary dark:text-immich-dark-primary"
-                      >{$t('admin.storage_template_migration_job')}</a
-                    >.
-                  </p>
-                  <p>
-                    The template variable <span class="font-mono">{`{{album}}`}</span> will always be empty for new
-                    assets, so manually running the
-
-                    <a href={AppRoute.ADMIN_JOBS} class="text-immich-primary dark:text-immich-dark-primary"
-                      >{$t('admin.storage_template_migration_job')}</a
+                    <FormatMessage
+                      key="admin.storage_template_migration_info"
+                      values={{ job: $t('admin.storage_template_migration_job') }}
                     >
-                    is required in order to successfully use the variable.
+                      {#snippet children({ message })}
+                        <a href={AppRoute.ADMIN_JOBS} class="text-immich-primary dark:text-immich-dark-primary">
+                          {message}
+                        </a>
+                      {/snippet}
+                    </FormatMessage>
                   </p>
                 </section>
               </div>
@@ -235,11 +275,11 @@
       {/if}
 
       {#if minified}
-        <slot />
+        {@render children?.()}
       {:else}
         <SettingButtonsRow
-          on:reset={({ detail }) => dispatch('reset', { ...detail, configKeys: ['storageTemplate'] })}
-          on:save={() => dispatch('save', { storageTemplate: config.storageTemplate })}
+          onReset={(options) => onReset({ ...options, configKeys: ['storageTemplate'] })}
+          onSave={() => onSave({ storageTemplate: config.storageTemplate })}
           showResetToDefault={!isEqual(savedConfig.storageTemplate, defaultConfig.storageTemplate) && !minified}
           {disabled}
         />

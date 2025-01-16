@@ -14,37 +14,73 @@ class UserPreferencesResponseDto {
   /// Returns a new [UserPreferencesResponseDto] instance.
   UserPreferencesResponseDto({
     required this.avatar,
+    required this.download,
     required this.emailNotifications,
+    required this.folders,
     required this.memories,
+    required this.people,
+    required this.purchase,
+    required this.ratings,
+    required this.tags,
   });
 
   AvatarResponse avatar;
 
+  DownloadResponse download;
+
   EmailNotificationsResponse emailNotifications;
 
-  MemoryResponse memories;
+  FoldersResponse folders;
+
+  MemoriesResponse memories;
+
+  PeopleResponse people;
+
+  PurchaseResponse purchase;
+
+  RatingsResponse ratings;
+
+  TagsResponse tags;
 
   @override
   bool operator ==(Object other) => identical(this, other) || other is UserPreferencesResponseDto &&
     other.avatar == avatar &&
+    other.download == download &&
     other.emailNotifications == emailNotifications &&
-    other.memories == memories;
+    other.folders == folders &&
+    other.memories == memories &&
+    other.people == people &&
+    other.purchase == purchase &&
+    other.ratings == ratings &&
+    other.tags == tags;
 
   @override
   int get hashCode =>
     // ignore: unnecessary_parenthesis
     (avatar.hashCode) +
+    (download.hashCode) +
     (emailNotifications.hashCode) +
-    (memories.hashCode);
+    (folders.hashCode) +
+    (memories.hashCode) +
+    (people.hashCode) +
+    (purchase.hashCode) +
+    (ratings.hashCode) +
+    (tags.hashCode);
 
   @override
-  String toString() => 'UserPreferencesResponseDto[avatar=$avatar, emailNotifications=$emailNotifications, memories=$memories]';
+  String toString() => 'UserPreferencesResponseDto[avatar=$avatar, download=$download, emailNotifications=$emailNotifications, folders=$folders, memories=$memories, people=$people, purchase=$purchase, ratings=$ratings, tags=$tags]';
 
   Map<String, dynamic> toJson() {
     final json = <String, dynamic>{};
       json[r'avatar'] = this.avatar;
+      json[r'download'] = this.download;
       json[r'emailNotifications'] = this.emailNotifications;
+      json[r'folders'] = this.folders;
       json[r'memories'] = this.memories;
+      json[r'people'] = this.people;
+      json[r'purchase'] = this.purchase;
+      json[r'ratings'] = this.ratings;
+      json[r'tags'] = this.tags;
     return json;
   }
 
@@ -52,13 +88,20 @@ class UserPreferencesResponseDto {
   /// [value] if it's a [Map], null otherwise.
   // ignore: prefer_constructors_over_static_methods
   static UserPreferencesResponseDto? fromJson(dynamic value) {
+    upgradeDto(value, "UserPreferencesResponseDto");
     if (value is Map) {
       final json = value.cast<String, dynamic>();
 
       return UserPreferencesResponseDto(
         avatar: AvatarResponse.fromJson(json[r'avatar'])!,
+        download: DownloadResponse.fromJson(json[r'download'])!,
         emailNotifications: EmailNotificationsResponse.fromJson(json[r'emailNotifications'])!,
-        memories: MemoryResponse.fromJson(json[r'memories'])!,
+        folders: FoldersResponse.fromJson(json[r'folders'])!,
+        memories: MemoriesResponse.fromJson(json[r'memories'])!,
+        people: PeopleResponse.fromJson(json[r'people'])!,
+        purchase: PurchaseResponse.fromJson(json[r'purchase'])!,
+        ratings: RatingsResponse.fromJson(json[r'ratings'])!,
+        tags: TagsResponse.fromJson(json[r'tags'])!,
       );
     }
     return null;
@@ -107,8 +150,14 @@ class UserPreferencesResponseDto {
   /// The list of required keys that must be present in a JSON.
   static const requiredKeys = <String>{
     'avatar',
+    'download',
     'emailNotifications',
+    'folders',
     'memories',
+    'people',
+    'purchase',
+    'ratings',
+    'tags',
   };
 }
 

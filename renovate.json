@@ -1,8 +1,15 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
-  "extends": ["config:base", "docker:pinDigests"],
+  "extends": [
+    "config:recommended",
+    "docker:pinDigests"
+  ],
   "minimumReleaseAge": "5 days",
   "packageRules": [
+    {
+      "groupName": "@immich/ui",
+      "matchPackageNames": ["@immich/ui"]
+    },
     {
       "matchFileNames": [
         "cli/**",
@@ -13,63 +20,123 @@
         "web/**"
       ],
       "groupName": "typescript-projects",
-      "matchUpdateTypes": ["minor", "patch"],
-      "excludePackagePrefixes": ["exiftool", "reflect-metadata"],
-      "schedule": "on tuesday"
+      "matchUpdateTypes": [
+        "minor",
+        "patch"
+      ],
+      "schedule": "on tuesday",
+      "matchPackageNames": [
+        "!exiftool{/,}**",
+        "!reflect-metadata{/,}**",
+        "!node",
+        "!@types/node",
+        "!@mapbox/mapbox-gl-rtl-text"
+      ]
     },
     {
-      "matchFileNames": ["machine-learning/**"],
+      "matchFileNames": [
+        "machine-learning/**"
+      ],
       "groupName": "machine-learning",
       "rangeStrategy": "in-range-only",
       "schedule": "on tuesday"
     },
     {
-      "matchFileNames": ["mobile/**"],
+      "matchFileNames": [
+        "mobile/**"
+      ],
       "groupName": "mobile",
-      "matchUpdateTypes": ["minor", "patch"],
+      "matchUpdateTypes": [
+        "minor",
+        "patch"
+      ],
       "schedule": "on tuesday",
-      "addLabels": ["📱mobile"]
+      "addLabels": [
+        "📱mobile"
+      ]
     },
     {
       "groupName": "flutter",
-      "matchPackagePatterns": ["flutter"],
-      "schedule": "on tuesday"
+      "schedule": "on tuesday",
+      "matchPackageNames": [
+        "/flutter/"
+      ]
     },
     {
       "groupName": "exiftool",
-      "matchPackagePrefixes": ["exiftool"],
-      "schedule": "on tuesday"
+      "schedule": "on tuesday",
+      "matchPackageNames": [
+        "exiftool{/,}**"
+      ]
     },
     {
       "groupName": "svelte",
-      "matchUpdateTypes": ["major"],
-      "matchPackagePrefixes": ["@sveltejs"],
-      "schedule": "on tuesday"
+      "matchUpdateTypes": [
+        "major"
+      ],
+      "schedule": "on tuesday",
+      "matchPackageNames": [
+        "@sveltejs{/,}**"
+      ]
     },
     {
-      "matchFileNames": [".github/**"],
+      "matchFileNames": [
+        ".github/**"
+      ],
       "groupName": "github-actions",
       "schedule": "on tuesday"
     },
     {
       "groupName": "base-image",
-      "matchPackagePrefixes": ["ghcr.io/immich-app/base-server"],
-      "minimumReleaseAge": "0"
+      "minimumReleaseAge": "0",
+      "matchPackageNames": [
+        "ghcr.io/immich-app/base-server{/,}**"
+      ]
     },
     {
-      "matchDatasources": ["docker"],
-      "matchPackageNames": ["node"],
+      "matchDatasources": [
+        "npm"
+      ],
+      "rangeStrategy": "bump",
+      "groupName": "node",
+      "versioning": "node",
+      "matchPackageNames": [
+        "node",
+        "@types/node"
+      ],
+      "schedule": "on tuesday"
+    },
+    {
+      "groupName": "node",
+      "matchDatasources": [
+        "docker"
+      ],
+      "matchPackageNames": [
+        "node"
+      ],
       "versionCompatibility": "^(?<version>[^-]+)(?<compatibility>-.*)?$",
       "versioning": "node",
       "schedule": "on tuesday"
     },
     {
-      "packageNames": ["com.google.guava:guava"],
-      "versionScheme": "docker",
+      "matchPackageNames": [
+        "com.google.guava:guava"
+      ],
+      "versioning": "docker",
       "schedule": "on tuesday"
     }
   ],
-  "ignorePaths": ["mobile/openapi/pubspec.yaml", "mobile/ios", "mobile/android"],
-  "ignoreDeps": ["http", "intl"],
-  "labels": ["dependencies", "renovate"]
+  "ignorePaths": [
+    "mobile/openapi/pubspec.yaml",
+    "mobile/ios",
+    "mobile/android"
+  ],
+  "ignoreDeps": [
+    "http",
+    "intl"
+  ],
+  "labels": [
+    "dependencies",
+    "changelog:skip"
+  ]
 }

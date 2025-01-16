@@ -6,19 +6,63 @@ from pathlib import Path
 from socket import socket
 
 from gunicorn.arbiter import Arbiter
-from pydantic import BaseModel, BaseSettings
+from pydantic import BaseModel
+from pydantic_settings import BaseSettings, SettingsConfigDict
 from rich.console import Console
 from rich.logging import RichHandler
 from uvicorn import Server
 from uvicorn.workers import UvicornWorker
 
 
+class ClipSettings(BaseModel):
+    textual: str | None = None
+    visual: str | None = None
+
+
+class FacialRecognitionSettings(BaseModel):
+    recognition: str | None = None
+    detection: str | None = None
+
+
 class PreloadModelData(BaseModel):
-    clip: str | None
-    facial_recognition: str | None
+    clip: ClipSettings = ClipSettings()
+    facial_recognition: FacialRecognitionSettings = FacialRecognitionSettings()
+
+    clip_model_fallback: str | None = os.getenv("MACHINE_LEARNING_PRELOAD__CLIP", None)
+    facial_recognition_model_fallback: str | None = os.getenv("MACHINE_LEARNING_PRELOAD__FACIAL_RECOGNITION", None)
+
+    def update_from_fallbacks(self) -> None:
+        if self.clip_model_fallback:
+            self.clip.textual = self.clip_model_fallback
+            self.clip.visual = self.clip_model_fallback
+            log.warning(
+                "Deprecated env variable: MACHINE_LEARNING_PRELOAD__CLIP. "
+                "Use MACHINE_LEARNING_PRELOAD__CLIP__TEXTUAL and "
+                "MACHINE_LEARNING_PRELOAD__CLIP__VISUAL instead."
+            )
+
+        if self.facial_recognition_model_fallback:
+            self.facial_recognition.recognition = self.facial_recognition_model_fallback
+            self.facial_recognition.detection = self.facial_recognition_model_fallback
+            log.warning(
+                "Deprecated environment variable: MACHINE_LEARNING_PRELOAD__FACIAL_RECOGNITION. "
+                "Use MACHINE_LEARNING_PRELOAD__FACIAL_RECOGNITION__RECOGNITION and "
+                "MACHINE_LEARNING_PRELOAD__FACIAL_RECOGNITION__DETECTION instead."
+            )
+
+
+class MaxBatchSize(BaseModel):
+    facial_recognition: int | None = None
 
 
 class Settings(BaseSettings):
+    model_config = SettingsConfigDict(
+        env_prefix="MACHINE_LEARNING_",
+        case_sensitive=False,
+        env_nested_delimiter="__",
+        protected_namespaces=("settings_",),
+    )
+
     cache_folder: Path = Path("/cache")
     model_ttl: int = 300
     model_ttl_poll_s: int = 10
@@ -30,20 +74,21 @@ class Settings(BaseSettings):
     model_inter_op_threads: int = 0
     model_intra_op_threads: int = 0
     ann: bool = True
+    ann_fp16_turbo: bool = False
+    ann_tuning_level: int = 2
     preload: PreloadModelData | None = None
+    max_batch_size: MaxBatchSize | None = None
 
-    class Config:
-        env_prefix = "MACHINE_LEARNING_"
-        case_sensitive = False
-        env_nested_delimiter = "__"
+    @property
+    def device_id(self) -> str:
+        return os.environ.get("MACHINE_LEARNING_DEVICE_ID", "0")
 
 
 class LogSettings(BaseSettings):
+    model_config = SettingsConfigDict(case_sensitive=False)
+
     immich_log_level: str = "info"
     no_color: bool = False
-
-    class Config:
-        case_sensitive = False
 
 
 _clean_name = str.maketrans(":\\/", "___", ".")

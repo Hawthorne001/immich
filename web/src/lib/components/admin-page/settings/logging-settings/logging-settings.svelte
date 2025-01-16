@@ -1,34 +1,40 @@
 <script lang="ts">
   import { LogLevel, type SystemConfigDto } from '@immich/sdk';
   import { isEqual } from 'lodash-es';
-  import { createEventDispatcher } from 'svelte';
   import { fade } from 'svelte/transition';
-  import type { SettingsEventType } from '../admin-settings';
+  import type { SettingsResetEvent, SettingsSaveEvent } from '../admin-settings';
   import SettingButtonsRow from '$lib/components/shared-components/settings/setting-buttons-row.svelte';
   import SettingSwitch from '$lib/components/shared-components/settings/setting-switch.svelte';
   import SettingSelect from '$lib/components/shared-components/settings/setting-select.svelte';
   import { t } from 'svelte-i18n';
 
-  export let savedConfig: SystemConfigDto;
-  export let defaultConfig: SystemConfigDto;
-  export let config: SystemConfigDto; // this is the config that is being edited
-  export let disabled = false;
+  interface Props {
+    savedConfig: SystemConfigDto;
+    defaultConfig: SystemConfigDto;
+    config: SystemConfigDto;
+    disabled?: boolean;
+    onReset: SettingsResetEvent;
+    onSave: SettingsSaveEvent;
+  }
 
-  const dispatch = createEventDispatcher<SettingsEventType>();
+  let { savedConfig, defaultConfig, config = $bindable(), disabled = false, onReset, onSave }: Props = $props();
+
+  const onsubmit = (event: Event) => {
+    event.preventDefault();
+  };
 </script>
 
 <div>
   <div in:fade={{ duration: 500 }}>
-    <form autocomplete="off" on:submit|preventDefault>
+    <form autocomplete="off" {onsubmit}>
       <div class="ml-4 mt-4 flex flex-col gap-4">
         <SettingSwitch
-          title={$t('enabled').toUpperCase()}
+          title={$t('admin.logging_enable_description')}
           {disabled}
-          subtitle={$t('admin.logging_enable_description')}
           bind:checked={config.logging.enabled}
         />
         <SettingSelect
-          label={$t('level').toUpperCase()}
+          label={$t('level')}
           desc={$t('admin.logging_level_description')}
           bind:value={config.logging.level}
           options={[
@@ -45,8 +51,8 @@
         />
 
         <SettingButtonsRow
-          on:reset={({ detail }) => dispatch('reset', { ...detail, configKeys: ['logging'] })}
-          on:save={() => dispatch('save', { logging: config.logging })}
+          onReset={(options) => onReset({ ...options, configKeys: ['logging'] })}
+          onSave={() => onSave({ logging: config.logging })}
           showResetToDefault={!isEqual(savedConfig.logging, defaultConfig.logging)}
           {disabled}
         />

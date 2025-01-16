@@ -2,14 +2,20 @@ import 'dart:collection';
 import 'dart:developer';
 import 'dart:math';
 
+import 'package:auto_route/auto_route.dart';
 import 'package:collection/collection.dart';
 import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
+import 'package:flutter/services.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:immich_mobile/extensions/build_context_extensions.dart';
 import 'package:immich_mobile/extensions/collection_extensions.dart';
+import 'package:immich_mobile/extensions/theme_extensions.dart';
+import 'package:immich_mobile/providers/asset_viewer/current_asset.provider.dart';
+import 'package:immich_mobile/providers/asset_viewer/is_motion_video_playing.provider.dart';
 import 'package:immich_mobile/providers/asset_viewer/scroll_notifier.provider.dart';
+import 'package:immich_mobile/providers/asset_viewer/show_controls.provider.dart';
 import 'package:immich_mobile/widgets/asset_grid/asset_drag_region.dart';
 import 'package:immich_mobile/widgets/asset_grid/thumbnail_image.dart';
 import 'package:immich_mobile/widgets/asset_grid/thumbnail_placeholder.dart';
@@ -86,6 +92,7 @@ class ImmichAssetGridViewState extends ConsumerState<ImmichAssetGridView> {
       ScrollOffsetController();
   final ItemPositionsListener _itemPositionsListener =
       ItemPositionsListener.create();
+  late final KeepAliveLink currentAssetLink;
 
   /// The timestamp when the haptic feedback was last invoked
   int _hapticFeedbackTS = 0;
@@ -198,6 +205,13 @@ class ImmichAssetGridViewState extends ConsumerState<ImmichAssetGridView> {
       allAssetsSelected: _allAssetsSelected,
       showStack: widget.showStack,
       heroOffset: widget.heroOffset,
+      onAssetTap: (asset) {
+        ref.read(currentAssetProvider.notifier).set(asset);
+        ref.read(isPlayingMotionVideoProvider.notifier).playing = false;
+        if (asset.isVideo) {
+          ref.read(showControlsProvider.notifier).show = false;
+        }
+      },
     );
   }
 
@@ -259,12 +273,14 @@ class ImmichAssetGridViewState extends ConsumerState<ImmichAssetGridView> {
       shrinkWrap: widget.shrinkWrap,
     );
 
-    final child = useDragScrolling
+    final child = (useDragScrolling && ModalRoute.of(context) != null)
         ? DraggableScrollbar.semicircle(
             scrollStateListener: dragScrolling,
             itemPositionsListener: _itemPositionsListener,
             controller: _itemScrollController,
-            backgroundColor: context.themeData.hintColor,
+            backgroundColor: context.isDarkTheme
+                ? context.colorScheme.primary.darken(amount: .5)
+                : context.colorScheme.primary,
             labelTextBuilder: _labelBuilder,
             padding: appBarOffset()
                 ? const EdgeInsets.only(top: 60)
@@ -276,6 +292,7 @@ class ImmichAssetGridViewState extends ConsumerState<ImmichAssetGridView> {
             child: listWidget,
           )
         : listWidget;
+
     return widget.onRefresh == null
         ? child
         : appBarOffset()
@@ -342,6 +359,7 @@ class ImmichAssetGridViewState extends ConsumerState<ImmichAssetGridView> {
   @override
   void initState() {
     super.initState();
+    currentAssetLink = ref.read(currentAssetProvider.notifier).ref.keepAlive();
     scrollToTopNotifierProvider.addListener(_scrollToTop);
     scrollToDateNotifierProvider.addListener(_scrollToDate);
 
@@ -363,6 +381,7 @@ class ImmichAssetGridViewState extends ConsumerState<ImmichAssetGridView> {
       _itemPositionsListener.itemPositions.removeListener(_positionListener);
     }
     _itemPositionsListener.itemPositions.removeListener(_hapticsListener);
+    currentAssetLink.close();
     super.dispose();
   }
 
@@ -523,7 +542,7 @@ class ImmichAssetGridViewState extends ConsumerState<ImmichAssetGridView> {
   Widget build(BuildContext context) {
     return PopScope(
       canPop: !(widget.selectionActive && _selectedAssets.isNotEmpty),
-      onPopInvoked: (didPop) => !didPop ? _deselectAll() : null,
+      onPopInvokedWithResult: (didPop, _) => !didPop ? _deselectAll() : null,
       child: Stack(
         children: [
           AssetDragRegion(
@@ -589,12 +608,13 @@ class _Section extends StatelessWidget {
   final RenderList renderList;
   final bool selectionActive;
   final bool dynamicLayout;
-  final Function(List<Asset>) selectAssets;
-  final Function(List<Asset>) deselectAssets;
+  final void Function(List<Asset>) selectAssets;
+  final void Function(List<Asset>) deselectAssets;
   final bool Function(List<Asset>) allAssetsSelected;
   final bool showStack;
   final int heroOffset;
   final bool showStorageIndicator;
+  final void Function(Asset) onAssetTap;
 
   const _Section({
     required this.section,
@@ -612,6 +632,7 @@ class _Section extends StatelessWidget {
     required this.showStack,
     required this.heroOffset,
     required this.showStorageIndicator,
+    required this.onAssetTap,
   });
 
   @override
@@ -677,6 +698,7 @@ class _Section extends StatelessWidget {
                       selectionActive: selectionActive,
                       onSelect: (asset) => selectAssets([asset]),
                       onDeselect: (asset) => deselectAssets([asset]),
+                      onAssetTap: onAssetTap,
                     ),
           ],
         );
@@ -718,9 +740,9 @@ class _Title extends StatelessWidget {
   final String title;
   final List<Asset> assets;
   final bool selectionActive;
-  final Function(List<Asset>) selectAssets;
-  final Function(List<Asset>) deselectAssets;
-  final Function(List<Asset>) allAssetsSelected;
+  final void Function(List<Asset>) selectAssets;
+  final void Function(List<Asset>) deselectAssets;
+  final bool Function(List<Asset>) allAssetsSelected;
 
   const _Title({
     required this.title,
@@ -759,8 +781,9 @@ class _AssetRow extends StatelessWidget {
   final bool showStorageIndicator;
   final int heroOffset;
   final bool showStack;
-  final Function(Asset)? onSelect;
-  final Function(Asset)? onDeselect;
+  final void Function(Asset) onAssetTap;
+  final void Function(Asset)? onSelect;
+  final void Function(Asset)? onDeselect;
   final bool isSelectionActive;
 
   const _AssetRow({
@@ -780,6 +803,7 @@ class _AssetRow extends StatelessWidget {
     required this.showStack,
     required this.isSelectionActive,
     required this.selectedAssets,
+    required this.onAssetTap,
     this.onSelect,
     this.onDeselect,
   });
@@ -815,6 +839,7 @@ class _AssetRow extends StatelessWidget {
       key: key,
       children: assets.mapIndexed((int index, Asset asset) {
         final bool last = index + 1 == assetsPerRow;
+        final isSelected = isSelectionActive && selectedAssets.contains(asset);
         return Container(
           width: width * widthDistribution[index],
           height: width,
@@ -822,21 +847,42 @@ class _AssetRow extends StatelessWidget {
             bottom: margin,
             right: last ? 0.0 : margin,
           ),
-          child: AssetIndexWrapper(
-            rowIndex: rowStartIndex + index,
-            sectionIndex: sectionIndex,
-            child: ThumbnailImage(
-              asset: asset,
-              index: absoluteOffset + index,
-              loadAsset: renderList.loadAsset,
-              totalAssets: renderList.totalAssets,
-              multiselectEnabled: selectionActive,
-              isSelected: isSelectionActive && selectedAssets.contains(asset),
-              onSelect: () => onSelect?.call(asset),
-              onDeselect: () => onDeselect?.call(asset),
-              showStorageIndicator: showStorageIndicator,
-              heroOffset: heroOffset,
-              showStack: showStack,
+          child: GestureDetector(
+            onTap: () {
+              if (selectionActive) {
+                if (isSelected) {
+                  onDeselect?.call(asset);
+                } else {
+                  onSelect?.call(asset);
+                }
+              } else {
+                final asset = renderList.loadAsset(absoluteOffset + index);
+                onAssetTap(asset);
+                context.pushRoute(
+                  GalleryViewerRoute(
+                    renderList: renderList,
+                    initialIndex: absoluteOffset + index,
+                    heroOffset: heroOffset,
+                    showStack: showStack,
+                  ),
+                );
+              }
+            },
+            onLongPress: () {
+              onSelect?.call(asset);
+              HapticFeedback.heavyImpact();
+            },
+            child: AssetIndexWrapper(
+              rowIndex: rowStartIndex + index,
+              sectionIndex: sectionIndex,
+              child: ThumbnailImage(
+                asset: asset,
+                multiselectEnabled: selectionActive,
+                isSelected: isSelectionActive && selectedAssets.contains(asset),
+                showStorageIndicator: showStorageIndicator,
+                heroOffset: heroOffset,
+                showStack: showStack,
+              ),
             ),
           ),
         );

@@ -1,16 +1,25 @@
-<script lang="ts" context="module">
+<script lang="ts" module>
   export type Color = 'transparent-primary' | 'transparent-gray';
 </script>
 
 <script lang="ts">
-  import Button from './button.svelte';
+  import Button from '$lib/components/elements/buttons/button.svelte';
+  import type { Snippet } from 'svelte';
 
-  export let color: Color = 'transparent-gray';
-  export let disabled = false;
-  export let fullwidth = false;
-  export let title: string | undefined = undefined;
+  interface Props {
+    href?: string;
+    color?: Color;
+    children?: Snippet;
+    onclick?: (e: MouseEvent) => void;
+    title?: string;
+    disabled?: boolean;
+    fullwidth?: boolean;
+    class?: string;
+  }
+
+  let { color = 'transparent-gray', children, ...rest }: Props = $props();
 </script>
 
-<Button {title} size="link" {color} shadow={false} rounded="lg" {disabled} on:click {fullwidth}>
-  <slot />
+<Button size="link" {color} shadow={false} rounded="lg" {...rest}>
+  {@render children?.()}
 </Button>

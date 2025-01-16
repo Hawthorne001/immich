@@ -16,11 +16,13 @@ services:
     env_file:
       - .env
     ports:
-      - 2283:3001
+      - 2283:2283
     depends_on:
       - redis
       - database
     restart: always
+    healthcheck:
+      disable: false
 
   immich-machine-learning:
     container_name: immich_machine_learning
@@ -33,15 +35,19 @@ services:
       dockerfile: Dockerfile
       args:
         - DEVICE=cpu # set to one of [armnn, cuda, openvino, openvino-wsl] for accelerated inference
+    ports:
+      - 3003:3003
     volumes:
       - model-cache:/cache
     env_file:
       - .env
     restart: always
+    healthcheck:
+      disable: false
 
   redis:
     container_name: immich_redis
-    image: redis:6.2-alpine@sha256:d6c2911ac51b289db208767581a5d154544f2b2fe4914ea5056443f62dc6e900
+    image: redis:6.2-alpine@sha256:905c4ee67b8e0aa955331960d2aa745781e6bd89afc44a8584bfd13bc890f0ae
     healthcheck:
       test: redis-cli ping || exit 1
     restart: always
@@ -61,19 +67,31 @@ services:
     ports:
       - 5432:5432
     healthcheck:
-      test: pg_isready --dbname='${DB_DATABASE_NAME}' || exit 1; Chksum="$$(psql --dbname='${DB_DATABASE_NAME}' --username='${DB_USERNAME}' --tuples-only --no-align --command='SELECT COALESCE(SUM(checksum_failures), 0) FROM pg_stat_database')"; echo "checksum failure count is $$Chksum"; [ "$$Chksum" = '0' ] || exit 1
+      test: >-
+        pg_isready --dbname="$${POSTGRES_DB}" --username="$${POSTGRES_USER}" || exit 1;
+        Chksum="$$(psql --dbname="$${POSTGRES_DB}" --username="$${POSTGRES_USER}" --tuples-only --no-align
+        --command='SELECT COALESCE(SUM(checksum_failures), 0) FROM pg_stat_database')";
+        echo "checksum failure count is $$Chksum";
+        [ "$$Chksum" = '0' ] || exit 1
       interval: 5m
       start_interval: 30s
       start_period: 5m
-    command: ["postgres", "-c" ,"shared_preload_libraries=vectors.so", "-c", 'search_path="$$user", public, vectors', "-c", "logging_collector=on", "-c", "max_wal_size=2GB", "-c", "shared_buffers=512MB", "-c", "wal_compression=on"]
+    command: >-
+      postgres
+      -c shared_preload_libraries=vectors.so
+      -c 'search_path="$$user", public, vectors'
+      -c logging_collector=on
+      -c max_wal_size=2GB
+      -c shared_buffers=512MB
+      -c wal_compression=on
     restart: always
 
-  # set IMMICH_METRICS=true in .env to enable metrics
+  # set IMMICH_TELEMETRY_INCLUDE=all in .env to enable metrics
   immich-prometheus:
     container_name: immich_prometheus
     ports:
       - 9090:9090
-    image: prom/prometheus@sha256:5c435642ca4d8427ca26f4901c11114023004709037880cd7860d5b7176aa731
+    image: prom/prometheus@sha256:6559acbd5d770b15bb3c954629ce190ac3cbbdb2b7f1c30f0385c4e05104e218
     volumes:
       - ./prometheus.yml:/etc/prometheus/prometheus.yml
       - prometheus-data:/prometheus
@@ -85,7 +103,7 @@ services:
     command: ['./run.sh', '-disable-reporting']
     ports:
       - 3000:3000
-    image: grafana/grafana:11.0.0-ubuntu@sha256:dcd3ae78713958a862732c3608d32c03f0c279c35a2032d74b80b12c5cdc47b8
+    image: grafana/grafana:11.4.0-ubuntu@sha256:afccec22ba0e4815cca1d2bf3836e414322390dc78d77f1851976ffa8d61051c
     volumes:
       - grafana-data:/var/lib/grafana
 

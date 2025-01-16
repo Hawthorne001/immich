@@ -1,3 +1,4 @@
+import 'package:immich_mobile/constants/colors.dart';
 import 'package:immich_mobile/entities/store.entity.dart';
 
 enum AppSettingsEnum<T> {
@@ -8,6 +9,21 @@ enum AppSettingsEnum<T> {
     "themeMode",
     "system",
   ), // "light","dark","system"
+  primaryColor<String>(
+    StoreKey.primaryColor,
+    "primaryColor",
+    defaultColorPresetName,
+  ),
+  dynamicTheme<bool>(
+    StoreKey.dynamicTheme,
+    "dynamicTheme",
+    false,
+  ),
+  colorfulInterface<bool>(
+    StoreKey.colorfulInterface,
+    "colorfulInterface",
+    true,
+  ),
   tilesPerRow<int>(StoreKey.tilesPerRow, "tilesPerRow", 4),
   dynamicLayout<bool>(StoreKey.dynamicLayout, "dynamicLayout", false),
   groupAssetsBy<int>(StoreKey.groupAssetsBy, "groupBy", 0),
@@ -47,6 +63,11 @@ enum AppSettingsEnum<T> {
   logLevel<int>(StoreKey.logLevel, null, 5), // Level.INFO = 5
   preferRemoteImage<bool>(StoreKey.preferRemoteImage, null, false),
   loopVideo<bool>(StoreKey.loopVideo, "loopVideo", true),
+  loadOriginalVideo<bool>(
+    StoreKey.loadOriginalVideo,
+    "loadOriginalVideo",
+    false,
+  ),
   mapThemeMode<int>(StoreKey.mapThemeMode, null, 0),
   mapShowFavoriteOnly<bool>(StoreKey.mapShowFavoriteOnly, null, false),
   mapIncludeArchived<bool>(StoreKey.mapIncludeArchived, null, false),
@@ -60,6 +81,8 @@ enum AppSettingsEnum<T> {
     false,
   ),
   enableHapticFeedback<bool>(StoreKey.enableHapticFeedback, null, true),
+  syncAlbums<bool>(StoreKey.syncAlbums, null, false),
+  autoEndpointSwitching<bool>(StoreKey.autoEndpointSwitching, null, false),
   ;
 
   const AppSettingsEnum(this.storeKey, this.hiveKey, this.defaultValue);

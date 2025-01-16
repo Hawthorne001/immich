@@ -1,23 +1,35 @@
 <script lang="ts">
-  import type { HTMLInputAttributes } from 'svelte/elements';
-
-  interface $$Props extends HTMLInputAttributes {
+  interface Props {
     type: 'date' | 'datetime-local';
+    value?: string;
+    min?: string;
+    max?: string;
+    class?: string;
+    id?: string;
+    name?: string;
+    placeholder?: string;
   }
 
-  export let value: $$Props['value'] = undefined;
+  let { type, value = $bindable(), max = undefined, ...rest }: Props = $props();
+
+  let fallbackMax = $derived(type === 'date' ? '9999-12-31' : '9999-12-31T23:59');
 
   // Updating `value` directly causes the date input to reset itself or
   // interfere with user changes.
-  $: updatedValue = value;
+  let updatedValue = $state<string>();
+  $effect(() => {
+    updatedValue = value;
+  });
 </script>
 
 <input
-  {...$$restProps}
+  {...rest}
+  {type}
   {value}
-  on:input={(e) => (updatedValue = e.currentTarget.value)}
-  on:blur={() => (value = updatedValue)}
-  on:keydown={(e) => {
+  max={max || fallbackMax}
+  oninput={(e) => (updatedValue = e.currentTarget.value)}
+  onblur={() => (value = updatedValue)}
+  onkeydown={(e) => {
     if (e.key === 'Enter') {
       value = updatedValue;
     }

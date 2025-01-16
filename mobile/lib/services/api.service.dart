@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:device_info_plus/device_info_plus.dart';
 import 'package:flutter/material.dart';
 import 'package:immich_mobile/entities/store.entity.dart';
 import 'package:immich_mobile/utils/url_helper.dart';
@@ -9,7 +10,7 @@ import 'package:logging/logging.dart';
 import 'package:openapi/api.dart';
 import 'package:http/http.dart';
 
-class ApiService {
+class ApiService implements Authentication {
   late ApiClient _apiClient;
 
   late UsersApi usersApi;
@@ -18,7 +19,7 @@ class ApiService {
   late AlbumsApi albumsApi;
   late AssetsApi assetsApi;
   late SearchApi searchApi;
-  late ServerInfoApi serverInfoApi;
+  late ServerApi serverInfoApi;
   late MapApi mapApi;
   late PartnersApi partnersApi;
   late PeopleApi peopleApi;
@@ -29,6 +30,7 @@ class ApiService {
   late ActivitiesApi activitiesApi;
   late DownloadApi downloadApi;
   late TrashApi trashApi;
+  late StacksApi stacksApi;
 
   ApiService() {
     final endpoint = Store.tryGet(StoreKey.serverEndpoint);
@@ -40,7 +42,7 @@ class ApiService {
   final _log = Logger("ApiService");
 
   setEndpoint(String endpoint) {
-    _apiClient = ApiClient(basePath: endpoint);
+    _apiClient = ApiClient(basePath: endpoint, authentication: this);
     if (_accessToken != null) {
       setAccessToken(_accessToken!);
     }
@@ -49,7 +51,7 @@ class ApiService {
     oAuthApi = OAuthApi(_apiClient);
     albumsApi = AlbumsApi(_apiClient);
     assetsApi = AssetsApi(_apiClient);
-    serverInfoApi = ServerInfoApi(_apiClient);
+    serverInfoApi = ServerApi(_apiClient);
     searchApi = SearchApi(_apiClient);
     mapApi = MapApi(_apiClient);
     partnersApi = PartnersApi(_apiClient);
@@ -61,13 +63,14 @@ class ApiService {
     activitiesApi = ActivitiesApi(_apiClient);
     downloadApi = DownloadApi(_apiClient);
     trashApi = TrashApi(_apiClient);
+    stacksApi = StacksApi(_apiClient);
   }
 
   Future<String> resolveAndSetEndpoint(String serverUrl) async {
-    final endpoint = await _resolveEndpoint(serverUrl);
+    final endpoint = await resolveEndpoint(serverUrl);
     setEndpoint(endpoint);
 
-    // Save in hivebox for next startup
+    // Save in local database for next startup
     Store.put(StoreKey.serverEndpoint, endpoint);
     return endpoint;
   }
@@ -79,7 +82,7 @@ class ApiService {
   ///  host   - required
   ///  port   - optional (default: based on schema)
   ///  path   - optional
-  Future<String> _resolveEndpoint(String serverUrl) async {
+  Future<String> resolveEndpoint(String serverUrl) async {
     final url = sanitizeUrl(serverUrl);
 
     if (!await _isEndpointAvailable(serverUrl)) {
@@ -95,24 +98,13 @@ class ApiService {
   }
 
   Future<bool> _isEndpointAvailable(String serverUrl) async {
-    final Client client = Client();
-
     if (!serverUrl.endsWith('/api')) {
       serverUrl += '/api';
     }
 
     try {
-      final response = await client
-          .get(Uri.parse("$serverUrl/server-info/ping"))
-          .timeout(const Duration(seconds: 5));
-
-      _log.info("Pinging server with response code ${response.statusCode}");
-      if (response.statusCode != 200) {
-        _log.severe(
-          "Server Gateway Error: ${response.body} - Cannot communicate to the server",
-        );
-        return false;
-      }
+      await setEndpoint(serverUrl);
+      await serverInfoApi.pingServer().timeout(const Duration(seconds: 5));
     } on TimeoutException catch (_) {
       return false;
     } on SocketException catch (_) {
@@ -132,9 +124,12 @@ class ApiService {
     final Client client = Client();
 
     try {
+      var headers = {"Accept": "application/json"};
+      headers.addAll(getRequestHeaders());
+
       final res = await client.get(
         Uri.parse("$baseUrl/.well-known/immich"),
-        headers: {"Accept": "application/json"},
+        headers: headers,
       );
 
       if (res.statusCode == 200) {
@@ -154,9 +149,56 @@ class ApiService {
     return "";
   }
 
-  setAccessToken(String accessToken) {
+  void setAccessToken(String accessToken) {
     _accessToken = accessToken;
-    _apiClient.addDefaultHeader('x-immich-user-token', accessToken);
+    Store.put(StoreKey.accessToken, accessToken);
+  }
+
+  Future<void> setDeviceInfoHeader() async {
+    DeviceInfoPlugin deviceInfoPlugin = DeviceInfoPlugin();
+
+    if (Platform.isIOS) {
+      final iosInfo = await deviceInfoPlugin.iosInfo;
+      authenticationApi.apiClient
+          .addDefaultHeader('deviceModel', iosInfo.utsname.machine);
+      authenticationApi.apiClient.addDefaultHeader('deviceType', 'iOS');
+    } else {
+      final androidInfo = await deviceInfoPlugin.androidInfo;
+      authenticationApi.apiClient
+          .addDefaultHeader('deviceModel', androidInfo.model);
+      authenticationApi.apiClient.addDefaultHeader('deviceType', 'Android');
+    }
+  }
+
+  static Map<String, String> getRequestHeaders() {
+    var accessToken = Store.get(StoreKey.accessToken, "");
+    var customHeadersStr = Store.get(StoreKey.customHeaders, "");
+    var header = <String, String>{};
+    if (accessToken.isNotEmpty) {
+      header['x-immich-user-token'] = accessToken;
+    }
+
+    if (customHeadersStr.isEmpty) {
+      return header;
+    }
+
+    var customHeaders = jsonDecode(customHeadersStr) as Map;
+    customHeaders.forEach((key, value) {
+      header[key] = value;
+    });
+
+    return header;
+  }
+
+  @override
+  Future<void> applyToParams(
+    List<QueryParam> queryParams,
+    Map<String, String> headerParams,
+  ) {
+    return Future<void>(() {
+      var headers = ApiService.getRequestHeaders();
+      headerParams.addAll(headers);
+    });
   }
 
   ApiClient get apiClient => _apiClient;

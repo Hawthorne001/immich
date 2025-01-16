@@ -1,29 +1,62 @@
 <script lang="ts">
   import { goto } from '$app/navigation';
-  import ChangePasswordForm from '$lib/components/forms/change-password-form.svelte';
-  import FullscreenContainer from '$lib/components/shared-components/fullscreen-container.svelte';
+  import AuthPageLayout from '$lib/components/layouts/AuthPageLayout.svelte';
   import { AppRoute } from '$lib/constants';
   import { resetSavedUser, user } from '$lib/stores/user.store';
-  import { logout } from '@immich/sdk';
+  import { logout, updateMyUser } from '@immich/sdk';
+  import { Alert, Button, Field, HelperText, PasswordInput, Stack, Text } from '@immich/ui';
+  import { t } from 'svelte-i18n';
   import type { PageData } from './$types';
 
-  export let data: PageData;
+  interface Props {
+    data: PageData;
+  }
 
-  const onSuccess = async () => {
+  let { data }: Props = $props();
+
+  let password = $state('');
+  let passwordConfirm = $state('');
+  const valid = $derived(password === passwordConfirm && passwordConfirm.length > 0);
+  const errorMessage = $derived(passwordConfirm.length === 0 || valid ? '' : $t('password_does_not_match'));
+
+  const onSubmit = async (event: Event) => {
+    event.preventDefault();
+
+    if (!valid) {
+      return;
+    }
+
+    await updateMyUser({ userUpdateMeDto: { password: String(password) } });
     await goto(AppRoute.AUTH_LOGIN);
     resetSavedUser();
     await logout();
   };
 </script>
 
-<FullscreenContainer title={data.meta.title}>
-  <p slot="message">
-    Hi {$user.name} ({$user.email}),
-    <br />
-    <br />
-    This is either the first time you are signing into the system or a request has been made to change your password. Please
-    enter the new password below.
-  </p>
+<AuthPageLayout title={data.meta.title}>
+  <div class="m-4">
+    <Alert color="primary" size="small">
+      <Stack gap={4}>
+        <Text>{$t('hi_user', { values: { name: $user.name, email: $user.email } })}</Text>
+        <Text>{$t('change_password_description')}</Text>
+      </Stack>
+    </Alert>
+  </div>
 
-  <ChangePasswordForm on:success={onSuccess} />
-</FullscreenContainer>
+  <form onsubmit={onSubmit} method="post" class="mx-4 mt-6">
+    <Stack gap={4} class="mt-4">
+      <Field label={$t('new_password')} required>
+        <PasswordInput bind:value={password} autocomplete="new-password" />
+      </Field>
+
+      <Field label={$t('confirm_password')} required>
+        <PasswordInput bind:value={passwordConfirm} autocomplete="new-password" />
+        <HelperText color="danger">{errorMessage}</HelperText>
+      </Field>
+
+      <div class="my-5 flex w-full">
+        <Button type="submit" size="large" shape="round" fullWidth disabled={!valid}>{$t('to_change_password')}</Button>
+      </div>
+    </Stack>
+  </form>
+</AuthPageLayout>

@@ -8,22 +8,28 @@
   import AutogrowTextarea from '$lib/components/shared-components/autogrow-textarea.svelte';
   import { t } from 'svelte-i18n';
 
-  export let asset: AssetResponseDto;
-  export let isOwner: boolean;
+  interface Props {
+    asset: AssetResponseDto;
+    isOwner: boolean;
+  }
 
-  $: description = asset.exifInfo?.description || '';
+  let { asset, isOwner }: Props = $props();
+
+  let description = $derived(asset.exifInfo?.description || '');
 
   const handleFocusOut = async (newDescription: string) => {
     try {
       await updateAsset({ id: asset.id, updateAssetDto: { description: newDescription } });
+
+      asset.exifInfo = { ...asset.exifInfo, description: newDescription };
+
       notificationController.show({
         type: NotificationType.Info,
-        message: 'Asset description has been updated',
+        message: $t('asset_description_updated'),
       });
     } catch (error) {
       handleError(error, $t('cannot_update_the_description'));
     }
-    description = newDescription;
   };
 </script>
 

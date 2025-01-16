@@ -1,26 +1,35 @@
 <script lang="ts">
-  import { locale } from '$lib/stores/preferences.store';
   import { user } from '$lib/stores/user.store';
   import type { AlbumResponseDto } from '@immich/sdk';
   import { mdiDotsVertical } from '@mdi/js';
-  import { getContextMenuPosition, type ContextMenuPosition } from '$lib/utils/context-menu';
+  import { getContextMenuPositionFromEvent, type ContextMenuPosition } from '$lib/utils/context-menu';
   import { getShortDateRange } from '$lib/utils/date-time';
   import AlbumCover from '$lib/components/album-page/album-cover.svelte';
   import CircleIconButton from '$lib/components/elements/buttons/circle-icon-button.svelte';
-  import { s } from '$lib/utils';
   import { t } from 'svelte-i18n';
 
-  export let album: AlbumResponseDto;
-  export let showOwner = false;
-  export let showDateRange = false;
-  export let showItemCount = false;
-  export let preload = false;
-  export let onShowContextMenu: ((position: ContextMenuPosition) => unknown) | undefined = undefined;
+  interface Props {
+    album: AlbumResponseDto;
+    showOwner?: boolean;
+    showDateRange?: boolean;
+    showItemCount?: boolean;
+    preload?: boolean;
+    onShowContextMenu?: ((position: ContextMenuPosition) => unknown) | undefined;
+  }
+
+  let {
+    album,
+    showOwner = false,
+    showDateRange = false,
+    showItemCount = false,
+    preload = false,
+    onShowContextMenu = undefined,
+  }: Props = $props();
 
   const showAlbumContextMenu = (e: MouseEvent) => {
     e.stopPropagation();
     e.preventDefault();
-    onShowContextMenu?.(getContextMenuPosition(e));
+    onShowContextMenu?.(getContextMenuPositionFromEvent(e));
   };
 </script>
 
@@ -41,12 +50,12 @@
         size="20"
         padding="2"
         class="icon-white-drop-shadow"
-        on:click={showAlbumContextMenu}
+        onclick={showAlbumContextMenu}
       />
     </div>
   {/if}
 
-  <AlbumCover {album} {preload} css="h-full w-full transition-all duration-300 hover:shadow-lg" />
+  <AlbumCover {album} {preload} class="transition-all duration-300 hover:shadow-lg" />
 
   <div class="mt-4">
     <p
@@ -66,8 +75,7 @@
     <span class="flex gap-2 text-sm dark:text-immich-dark-fg" data-testid="album-details">
       {#if showItemCount}
         <p>
-          {album.assetCount.toLocaleString($locale)}
-          item{s(album.assetCount)}
+          {$t('items_count', { values: { count: album.assetCount } })}
         </p>
       {/if}
 
@@ -79,7 +87,7 @@
         {#if $user.id === album.ownerId}
           <p>{$t('owned')}</p>
         {:else if album.owner}
-          <p>Shared by {album.owner.name}</p>
+          <p>{$t('shared_by_user', { values: { user: album.owner.name } })}</p>
         {:else}
           <p>{$t('shared')}</p>
         {/if}

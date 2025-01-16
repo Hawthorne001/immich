@@ -1,20 +1,28 @@
 <script lang="ts">
   import Icon from '$lib/components/elements/icon.svelte';
   import { locale } from '$lib/stores/preferences.store';
-  import { asByteUnitString, getBytesWithUnit } from '$lib/utils/byte-units';
+  import { getByteUnitString, getBytesWithUnit } from '$lib/utils/byte-units';
   import type { ServerStatsResponseDto } from '@immich/sdk';
   import { mdiCameraIris, mdiChartPie, mdiPlayCircle } from '@mdi/js';
   import StatsCard from './stats-card.svelte';
   import { t } from 'svelte-i18n';
 
-  export let stats: ServerStatsResponseDto = {
-    photos: 0,
-    videos: 0,
-    usage: 0,
-    usageByUser: [],
-  };
+  interface Props {
+    stats?: ServerStatsResponseDto;
+  }
 
-  $: zeros = (value: number) => {
+  let {
+    stats = {
+      photos: 0,
+      videos: 0,
+      usage: 0,
+      usagePhotos: 0,
+      usageVideos: 0,
+      usageByUser: [],
+    },
+  }: Props = $props();
+
+  const zeros = (value: number) => {
     const maxLength = 13;
     const valueLength = value.toString().length;
     const zeroLength = maxLength - valueLength;
@@ -23,7 +31,7 @@
   };
 
   const TiB = 1024 ** 4;
-  $: [statsUsage, statsUsageUnit] = getBytesWithUnit(stats.usage, stats.usage > TiB ? 2 : 0);
+  let [statsUsage, statsUsageUnit] = $derived(getBytesWithUnit(stats.usage, stats.usage > TiB ? 2 : 0));
 </script>
 
 <div class="flex flex-col gap-5">
@@ -99,16 +107,23 @@
             class="flex h-[50px] w-full place-items-center text-center odd:bg-immich-gray even:bg-immich-bg odd:dark:bg-immich-dark-gray/75 even:dark:bg-immich-dark-gray/50"
           >
             <td class="w-1/4 text-ellipsis px-2 text-sm">{user.userName}</td>
-            <td class="w-1/4 text-ellipsis px-2 text-sm">{user.photos.toLocaleString($locale)}</td>
-            <td class="w-1/4 text-ellipsis px-2 text-sm">{user.videos.toLocaleString($locale)}</td>
+            <td class="w-1/4 text-ellipsis px-2 text-sm"
+              >{user.photos.toLocaleString($locale)} ({getByteUnitString(user.usagePhotos, $locale, 0)})</td
+            >
+            <td class="w-1/4 text-ellipsis px-2 text-sm"
+              >{user.videos.toLocaleString($locale)} ({getByteUnitString(user.usageVideos, $locale, 0)})</td
+            >
             <td class="w-1/4 text-ellipsis px-2 text-sm">
-              {asByteUnitString(user.usage, $locale, 0)}
+              {getByteUnitString(user.usage, $locale, 0)}
               {#if user.quotaSizeInBytes}
-                / {asByteUnitString(user.quotaSizeInBytes, $locale, 0)}
+                / {getByteUnitString(user.quotaSizeInBytes, $locale, 0)}
               {/if}
               <span class="text-immich-primary dark:text-immich-dark-primary">
                 {#if user.quotaSizeInBytes}
-                  ({((user.usage / user.quotaSizeInBytes) * 100).toFixed(0)}%)
+                  ({(user.usage / user.quotaSizeInBytes).toLocaleString($locale, {
+                    style: 'percent',
+                    maximumFractionDigits: 0,
+                  })})
                 {:else}
                   ({$t('unlimited')})
                 {/if}

@@ -1,4 +1,4 @@
-<script lang="ts" context="module">
+<script lang="ts" module>
   export interface SearchCameraFilter {
     make?: string;
     model?: string;
@@ -6,57 +6,79 @@
 </script>
 
 <script lang="ts">
-  import { SearchSuggestionType, getSearchSuggestions } from '@immich/sdk';
-  import Combobox, { toComboBoxOptions } from '../combobox.svelte';
+  import { run } from 'svelte/legacy';
+
+  import Combobox, { asComboboxOptions, asSelectedOption } from '$lib/components/shared-components/combobox.svelte';
   import { handlePromiseError } from '$lib/utils';
+  import { SearchSuggestionType, getSearchSuggestions } from '@immich/sdk';
   import { t } from 'svelte-i18n';
 
-  export let filters: SearchCameraFilter;
+  interface Props {
+    filters: SearchCameraFilter;
+  }
 
-  let makes: string[] = [];
-  let models: string[] = [];
+  let { filters = $bindable() }: Props = $props();
 
-  $: makeFilter = filters.make;
-  $: modelFilter = filters.model;
-  $: handlePromiseError(updateMakes(modelFilter));
-  $: handlePromiseError(updateModels(makeFilter));
+  let makes: string[] = $state([]);
+  let models: string[] = $state([]);
 
-  async function updateMakes(model?: string) {
-    makes = await getSearchSuggestions({
+  async function updateMakes() {
+    const results: Array<string | null> = await getSearchSuggestions({
       $type: SearchSuggestionType.CameraMake,
-      model,
+      includeNull: true,
     });
+
+    makes = results.map((result) => result ?? '');
+
+    if (filters.make && !makes.includes(filters.make)) {
+      filters.make = undefined;
+    }
   }
 
   async function updateModels(make?: string) {
-    models = await getSearchSuggestions({
+    const results: Array<string | null> = await getSearchSuggestions({
       $type: SearchSuggestionType.CameraModel,
       make,
+      includeNull: true,
     });
+
+    models = results.map((result) => result ?? '');
+
+    if (filters.model && !models.includes(filters.model)) {
+      filters.model = undefined;
+    }
   }
+  let makeFilter = $derived(filters.make);
+  let modelFilter = $derived(filters.model);
+  run(() => {
+    handlePromiseError(updateMakes());
+  });
+  run(() => {
+    handlePromiseError(updateModels(makeFilter));
+  });
 </script>
 
 <div id="camera-selection">
   <p class="immich-form-label">{$t('camera').toUpperCase()}</p>
 
-  <div class="grid grid-cols-[repeat(auto-fit,minmax(10rem,1fr))] gap-5 mt-1">
+  <div class="grid grid-auto-fit-40 gap-5 mt-1">
     <div class="w-full">
       <Combobox
         label={$t('make')}
-        on:select={({ detail }) => (filters.make = detail?.value)}
-        options={toComboBoxOptions(makes)}
+        onSelect={(option) => (filters.make = option?.value)}
+        options={asComboboxOptions(makes)}
         placeholder={$t('search_camera_make')}
-        selectedOption={makeFilter ? { label: makeFilter, value: makeFilter } : undefined}
+        selectedOption={asSelectedOption(makeFilter)}
       />
     </div>
 
     <div class="w-full">
       <Combobox
         label={$t('model')}
-        on:select={({ detail }) => (filters.model = detail?.value)}
-        options={toComboBoxOptions(models)}
+        onSelect={(option) => (filters.model = option?.value)}
+        options={asComboboxOptions(models)}
         placeholder={$t('search_camera_model')}
-        selectedOption={modelFilter ? { label: modelFilter, value: modelFilter } : undefined}
+        selectedOption={asSelectedOption(modelFilter)}
       />
     </div>
   </div>
