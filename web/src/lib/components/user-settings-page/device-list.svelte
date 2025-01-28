@@ -7,17 +7,20 @@
   import { dialogController } from '$lib/components/shared-components/dialog/dialog';
   import { t } from 'svelte-i18n';
 
-  export let devices: SessionResponseDto[];
+  interface Props {
+    devices: SessionResponseDto[];
+  }
+
+  let { devices = $bindable() }: Props = $props();
 
   const refresh = () => getSessions().then((_devices) => (devices = _devices));
 
-  $: currentDevice = devices.find((device) => device.current);
-  $: otherDevices = devices.filter((device) => !device.current);
+  let currentDevice = $derived(devices.find((device) => device.current));
+  let otherDevices = $derived(devices.filter((device) => !device.current));
 
   const handleDelete = async (device: SessionResponseDto) => {
     const isConfirmed = await dialogController.show({
-      id: 'log-out-device',
-      prompt: 'Are you sure you want to log out this device?',
+      prompt: $t('logout_this_device_confirmation'),
     });
 
     if (!isConfirmed) {
@@ -26,20 +29,16 @@
 
     try {
       await deleteSession({ id: device.id });
-      notificationController.show({ message: `Logged out device`, type: NotificationType.Info });
+      notificationController.show({ message: $t('logged_out_device'), type: NotificationType.Info });
     } catch (error) {
-      handleError(error, 'Unable to log out device');
+      handleError(error, $t('errors.unable_to_log_out_device'));
     } finally {
       await refresh();
     }
   };
 
   const handleDeleteAll = async () => {
-    const isConfirmed = await dialogController.show({
-      id: 'log-out-all-devices',
-      prompt: 'Are you sure you want to log out all devices?',
-    });
-
+    const isConfirmed = await dialogController.show({ prompt: $t('logout_all_device_confirmation') });
     if (!isConfirmed) {
       return;
     }
@@ -47,11 +46,11 @@
     try {
       await deleteAllSessions();
       notificationController.show({
-        message: `Logged out all devices`,
+        message: $t('logged_out_all_devices'),
         type: NotificationType.Info,
       });
     } catch (error) {
-      handleError(error, 'Unable to log out all devices');
+      handleError(error, $t('errors.unable_to_log_out_all_devices'));
     } finally {
       await refresh();
     }
@@ -73,7 +72,7 @@
         {$t('other_devices').toUpperCase()}
       </h3>
       {#each otherDevices as device, index}
-        <DeviceCard {device} on:delete={() => handleDelete(device)} />
+        <DeviceCard {device} onDelete={() => handleDelete(device)} />
         {#if index !== otherDevices.length - 1}
           <hr class="my-3" />
         {/if}
@@ -83,7 +82,7 @@
       {$t('log_out_all_devices').toUpperCase()}
     </h3>
     <div class="flex justify-end">
-      <Button color="red" size="sm" on:click={handleDeleteAll}>{$t('log_out_all_devices')}</Button>
+      <Button color="red" size="sm" onclick={handleDeleteAll}>{$t('log_out_all_devices')}</Button>
     </div>
   {/if}
 </section>

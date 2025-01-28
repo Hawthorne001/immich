@@ -7,15 +7,18 @@
   import { archiveAssets } from '$lib/utils/asset-utils';
   import { t } from 'svelte-i18n';
 
-  export let onArchive: OnArchive;
+  interface Props {
+    onArchive: OnArchive;
+    menuItem?: boolean;
+    unarchive?: boolean;
+  }
 
-  export let menuItem = false;
-  export let unarchive = false;
+  let { onArchive, menuItem = false, unarchive = false }: Props = $props();
 
-  $: text = unarchive ? $t('unarchive') : $t('to_archive');
-  $: icon = unarchive ? mdiArchiveArrowUpOutline : mdiArchiveArrowDownOutline;
+  let text = $derived(unarchive ? $t('unarchive') : $t('to_archive'));
+  let icon = $derived(unarchive ? mdiArchiveArrowUpOutline : mdiArchiveArrowDownOutline);
 
-  let loading = false;
+  let loading = $state(false);
 
   const { clearSelect, getOwnedAssets } = getAssetControlContext();
 
@@ -33,13 +36,13 @@
 </script>
 
 {#if menuItem}
-  <MenuOption {text} {icon} on:click={handleArchive} />
+  <MenuOption {text} {icon} onClick={handleArchive} />
 {/if}
 
 {#if !menuItem}
   {#if loading}
-    <CircleIconButton title={$t('loading')} icon={mdiTimerSand} />
+    <CircleIconButton title={$t('loading')} icon={mdiTimerSand} onclick={() => {}} />
   {:else}
-    <CircleIconButton title={text} {icon} on:click={handleArchive} />
+    <CircleIconButton title={text} {icon} onclick={handleArchive} />
   {/if}
 {/if}

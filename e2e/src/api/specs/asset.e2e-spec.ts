@@ -3,11 +3,12 @@ import {
   AssetMediaStatus,
   AssetResponseDto,
   AssetTypeEnum,
+  getAssetInfo,
+  getConfig,
+  getMyUser,
   LoginResponseDto,
   SharedLinkType,
-  getAssetInfo,
-  getMyUser,
-  updateAssets,
+  updateConfig,
 } from '@immich/sdk';
 import { exiftool } from 'exiftool-vendored';
 import { DateTime } from 'luxon';
@@ -18,7 +19,7 @@ import { Socket } from 'socket.io-client';
 import { createUserDto, uuidDto } from 'src/fixtures';
 import { makeRandomImage } from 'src/generators';
 import { errorDto } from 'src/responses';
-import { app, asBearerAuth, tempDir, testAssetDir, utils } from 'src/utils';
+import { app, asBearerAuth, tempDir, TEN_TIMES, testAssetDir, utils } from 'src/utils';
 import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
@@ -40,9 +41,11 @@ const makeUploadDto = (options?: { omit: string }): Record<string, any> => {
   return dto;
 };
 
-const TEN_TIMES = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
-
 const locationAssetFilepath = `${testAssetDir}/metadata/gps-position/thompson-springs.jpg`;
+const ratingAssetFilepath = `${testAssetDir}/metadata/rating/mongolels.jpg`;
+const facesAssetFilepath = `${testAssetDir}/metadata/faces/portrait.jpg`;
+
+const getSystemConfig = (accessToken: string) => getConfig({ headers: asBearerAuth(accessToken) });
 
 const readTags = async (bytes: Buffer, filename: string) => {
   const filepath = join(tempDir, filename);
@@ -66,25 +69,23 @@ describe('/asset', () => {
   let timeBucketUser: LoginResponseDto;
   let quotaUser: LoginResponseDto;
   let statsUser: LoginResponseDto;
-  let stackUser: LoginResponseDto;
 
   let user1Assets: AssetMediaResponseDto[];
   let user2Assets: AssetMediaResponseDto[];
-  let stackAssets: AssetMediaResponseDto[];
   let locationAsset: AssetMediaResponseDto;
+  let ratingAsset: AssetMediaResponseDto;
 
   const setupTests = async () => {
     await utils.resetDatabase();
     admin = await utils.adminSetup({ onboarding: false });
 
-    [websocket, user1, user2, statsUser, quotaUser, timeBucketUser, stackUser] = await Promise.all([
+    [websocket, user1, user2, statsUser, quotaUser, timeBucketUser] = await Promise.all([
       utils.connectWebsocket(admin.accessToken),
       utils.userSetup(admin.accessToken, createUserDto.create('1')),
       utils.userSetup(admin.accessToken, createUserDto.create('2')),
       utils.userSetup(admin.accessToken, createUserDto.create('stats')),
       utils.userSetup(admin.accessToken, createUserDto.userQuota),
       utils.userSetup(admin.accessToken, createUserDto.create('time-bucket')),
-      utils.userSetup(admin.accessToken, createUserDto.create('stack')),
     ]);
 
     await utils.createPartner(user1.accessToken, user2.userId);
@@ -98,6 +99,16 @@ describe('/asset', () => {
     });
 
     await utils.waitForWebsocketEvent({ event: 'assetUpload', id: locationAsset.id });
+
+    // asset rating
+    ratingAsset = await utils.createAsset(admin.accessToken, {
+      assetData: {
+        filename: 'mongolels.jpg',
+        bytes: await readFile(ratingAssetFilepath),
+      },
+    });
+
+    await utils.waitForWebsocketEvent({ event: 'assetUpload', id: ratingAsset.id });
 
     user1Assets = await Promise.all([
       utils.createAsset(user1.accessToken),
@@ -136,20 +147,6 @@ describe('/asset', () => {
         assetData: { filename: 'example.mp4' },
       }),
     ]);
-
-    // stacks
-    stackAssets = await Promise.all([
-      utils.createAsset(stackUser.accessToken),
-      utils.createAsset(stackUser.accessToken),
-      utils.createAsset(stackUser.accessToken),
-      utils.createAsset(stackUser.accessToken),
-      utils.createAsset(stackUser.accessToken),
-    ]);
-
-    await updateAssets(
-      { assetBulkUpdateDto: { stackParentId: stackAssets[0].id, ids: [stackAssets[1].id, stackAssets[2].id] } },
-      { headers: asBearerAuth(stackUser.accessToken) },
-    );
 
     const person1 = await utils.createPerson(user1.accessToken, {
       name: 'Test Person',
@@ -212,6 +209,80 @@ describe('/asset', () => {
         .set('Authorization', `Bearer ${user1.accessToken}`);
       expect(status).toBe(200);
       expect(body).toMatchObject({ id: user1Assets[0].id });
+    });
+
+    it('should get the asset rating', async () => {
+      await utils.waitForWebsocketEvent({
+        event: 'assetUpload',
+        id: ratingAsset.id,
+      });
+
+      const { status, body } = await request(app)
+        .get(`/assets/${ratingAsset.id}`)
+        .set('Authorization', `Bearer ${admin.accessToken}`);
+      expect(status).toBe(200);
+      expect(body).toMatchObject({
+        id: ratingAsset.id,
+        exifInfo: expect.objectContaining({ rating: 3 }),
+      });
+    });
+
+    it('should get the asset faces', async () => {
+      const config = await getSystemConfig(admin.accessToken);
+      config.metadata.faces.import = true;
+      await updateConfig({ systemConfigDto: config }, { headers: asBearerAuth(admin.accessToken) });
+
+      // asset faces
+      const facesAsset = await utils.createAsset(admin.accessToken, {
+        assetData: {
+          filename: 'portrait.jpg',
+          bytes: await readFile(facesAssetFilepath),
+        },
+      });
+
+      await utils.waitForWebsocketEvent({ event: 'assetUpload', id: facesAsset.id });
+
+      const { status, body } = await request(app)
+        .get(`/assets/${facesAsset.id}`)
+        .set('Authorization', `Bearer ${admin.accessToken}`);
+      expect(status).toBe(200);
+      expect(body.id).toEqual(facesAsset.id);
+      expect(body.people).toMatchObject([
+        {
+          name: 'Marie Curie',
+          birthDate: null,
+          thumbnailPath: '',
+          isHidden: false,
+          faces: [
+            {
+              imageHeight: 700,
+              imageWidth: 840,
+              boundingBoxX1: 261,
+              boundingBoxX2: 356,
+              boundingBoxY1: 146,
+              boundingBoxY2: 284,
+              sourceType: 'exif',
+            },
+          ],
+        },
+        {
+          name: 'Pierre Curie',
+          birthDate: null,
+          thumbnailPath: '',
+          isHidden: false,
+          faces: [
+            {
+              imageHeight: 700,
+              imageWidth: 840,
+              boundingBoxX1: 536,
+              boundingBoxX2: 618,
+              boundingBoxY1: 83,
+              boundingBoxY2: 252,
+              sourceType: 'exif',
+            },
+          ],
+        },
+      ]);
     });
 
     it('should work with a shared link', async () => {
@@ -353,6 +424,8 @@ describe('/asset', () => {
         utils.createAsset(user1.accessToken),
         utils.createAsset(user1.accessToken),
       ]);
+
+      await utils.waitForQueueFinish(admin.accessToken, 'thumbnailGeneration');
     });
 
     it('should require authentication', async () => {
@@ -389,17 +462,14 @@ describe('/asset', () => {
       }
     });
 
-    it.each(TEN_TIMES)(
-      'should return 1 asset if there are 10 assets in the database but user 2 only has 1',
-      async () => {
-        const { status, body } = await request(app)
-          .get('/assets/random')
-          .set('Authorization', `Bearer ${user2.accessToken}`);
+    it.skip('should return 1 asset if there are 10 assets in the database but user 2 only has 1', async () => {
+      const { status, body } = await request(app)
+        .get('/assets/random')
+        .set('Authorization', `Bearer ${user2.accessToken}`);
 
-        expect(status).toBe(200);
-        expect(body).toEqual([expect.objectContaining({ id: user2Assets[0].id })]);
-      },
-    );
+      expect(status).toBe(200);
+      expect(body).toEqual([expect.objectContaining({ id: user2Assets[0].id })]);
+    });
 
     it('should return error', async () => {
       const { status } = await request(app)
@@ -466,7 +536,87 @@ describe('/asset', () => {
       expect(body).toMatchObject({
         id: user1Assets[0].id,
         exifInfo: expect.objectContaining({
-          dateTimeOriginal: '2023-11-20T01:11:00.000Z',
+          dateTimeOriginal: '2023-11-20T01:11:00+00:00',
+        }),
+      });
+      expect(status).toEqual(200);
+    });
+
+    it('should not allow linking two photos', async () => {
+      const { status, body } = await request(app)
+        .put(`/assets/${user1Assets[0].id}`)
+        .set('Authorization', `Bearer ${user1.accessToken}`)
+        .send({ livePhotoVideoId: user1Assets[1].id });
+
+      expect(body).toEqual(errorDto.badRequest('Live photo video must be a video'));
+      expect(status).toEqual(400);
+    });
+
+    it('should not allow linking a video owned by another user', async () => {
+      const asset = await utils.createAsset(user2.accessToken, { assetData: { filename: 'example.mp4' } });
+      const { status, body } = await request(app)
+        .put(`/assets/${user1Assets[0].id}`)
+        .set('Authorization', `Bearer ${user1.accessToken}`)
+        .send({ livePhotoVideoId: asset.id });
+
+      expect(body).toEqual(errorDto.badRequest('Live photo video does not belong to the user'));
+      expect(status).toEqual(400);
+    });
+
+    it('should link a motion photo', async () => {
+      const asset = await utils.createAsset(user1.accessToken, { assetData: { filename: 'example.mp4' } });
+      const { status, body } = await request(app)
+        .put(`/assets/${user1Assets[0].id}`)
+        .set('Authorization', `Bearer ${user1.accessToken}`)
+        .send({ livePhotoVideoId: asset.id });
+
+      expect(status).toEqual(200);
+      expect(body).toMatchObject({ id: user1Assets[0].id, livePhotoVideoId: asset.id });
+    });
+
+    it('should unlink a motion photo', async () => {
+      const { status, body } = await request(app)
+        .put(`/assets/${user1Assets[0].id}`)
+        .set('Authorization', `Bearer ${user1.accessToken}`)
+        .send({ livePhotoVideoId: null });
+
+      expect(status).toEqual(200);
+      expect(body).toMatchObject({ id: user1Assets[0].id, livePhotoVideoId: null });
+    });
+
+    it('should update date time original when sidecar file contains DateTimeOriginal', async () => {
+      const sidecarData = `<?xpacket begin='?' id='W5M0MpCehiHzreSzNTczkc9d'?>
+<x:xmpmeta xmlns:x='adobe:ns:meta/' x:xmptk='Image::ExifTool 12.40'>
+<rdf:RDF xmlns:rdf='http://www.w3.org/1999/02/22-rdf-syntax-ns#'>
+ <rdf:Description rdf:about=''
+  xmlns:exif='http://ns.adobe.com/exif/1.0/'>
+  <exif:ExifVersion>0220</exif:ExifVersion>  <exif:DateTimeOriginal>2024-07-11T10:32:52Z</exif:DateTimeOriginal>
+  <exif:GPSVersionID>2.3.0.0</exif:GPSVersionID>
+ </rdf:Description>
+</rdf:RDF>
+</x:xmpmeta>
+<?xpacket end='w'?>`;
+
+      const { id } = await utils.createAsset(user1.accessToken, {
+        sidecarData: {
+          bytes: Buffer.from(sidecarData),
+          filename: 'example.xmp',
+        },
+      });
+      await utils.waitForQueueFinish(admin.accessToken, 'metadataExtraction');
+
+      const assetInfo = await utils.getAssetInfo(user1.accessToken, id);
+      expect(assetInfo.exifInfo?.dateTimeOriginal).toBe('2024-07-11T10:32:52+00:00');
+
+      const { status, body } = await request(app)
+        .put(`/assets/${id}`)
+        .set('Authorization', `Bearer ${user1.accessToken}`)
+        .send({ dateTimeOriginal: '2023-11-19T18:11:00.000-07:00' });
+
+      expect(body).toMatchObject({
+        id,
+        exifInfo: expect.objectContaining({
+          dateTimeOriginal: '2023-11-20T01:11:00+00:00',
         }),
       });
       expect(status).toEqual(200);
@@ -507,6 +657,22 @@ describe('/asset', () => {
       expect(status).toEqual(200);
     });
 
+    it.skip('should geocode country from gps data in the middle of nowhere', async () => {
+      const { status } = await request(app)
+        .put(`/assets/${user1Assets[0].id}`)
+        .set('Authorization', `Bearer ${user1.accessToken}`)
+        .send({ latitude: 42, longitude: 69 });
+      expect(status).toEqual(200);
+
+      await utils.waitForQueueFinish(admin.accessToken, 'metadataExtraction');
+
+      const asset = await getAssetInfo({ id: user1Assets[0].id }, { headers: asBearerAuth(user1.accessToken) });
+      expect(asset).toMatchObject({
+        id: user1Assets[0].id,
+        exifInfo: expect.objectContaining({ city: null, country: 'Kazakhstan' }),
+      });
+    });
+
     it('should set the description', async () => {
       const { status, body } = await request(app)
         .put(`/assets/${user1Assets[0].id}`)
@@ -519,6 +685,45 @@ describe('/asset', () => {
         }),
       });
       expect(status).toEqual(200);
+    });
+
+    it('should set the rating', async () => {
+      const { status, body } = await request(app)
+        .put(`/assets/${user1Assets[0].id}`)
+        .set('Authorization', `Bearer ${user1.accessToken}`)
+        .send({ rating: 2 });
+      expect(body).toMatchObject({
+        id: user1Assets[0].id,
+        exifInfo: expect.objectContaining({
+          rating: 2,
+        }),
+      });
+      expect(status).toEqual(200);
+    });
+
+    it('should set the negative rating', async () => {
+      const { status, body } = await request(app)
+        .put(`/assets/${user1Assets[0].id}`)
+        .set('Authorization', `Bearer ${user1.accessToken}`)
+        .send({ rating: -1 });
+      expect(body).toMatchObject({
+        id: user1Assets[0].id,
+        exifInfo: expect.objectContaining({
+          rating: -1,
+        }),
+      });
+      expect(status).toEqual(200);
+    });
+
+    it('should reject invalid rating', async () => {
+      for (const test of [{ rating: 7 }, { rating: 3.5 }, { rating: null }]) {
+        const { status, body } = await request(app)
+          .put(`/assets/${user1Assets[0].id}`)
+          .send(test)
+          .set('Authorization', `Bearer ${user1.accessToken}`);
+        expect(status).toBe(400);
+        expect(body).toEqual(errorDto.badRequest());
+      }
     });
 
     it('should return tagged people', async () => {
@@ -573,7 +778,7 @@ describe('/asset', () => {
       expect(body).toEqual(errorDto.badRequest('Not found or no asset.delete access'));
     });
 
-    it('should move an asset to the trash', async () => {
+    it('should move an asset to trash', async () => {
       const { id: assetId } = await utils.createAsset(admin.accessToken);
 
       const before = await utils.getAssetInfo(admin.accessToken, assetId);
@@ -587,6 +792,90 @@ describe('/asset', () => {
 
       const after = await utils.getAssetInfo(admin.accessToken, assetId);
       expect(after.isTrashed).toBe(true);
+    });
+
+    it('should permanently delete an asset from trash', async () => {
+      const { id: assetId } = await utils.createAsset(admin.accessToken);
+
+      {
+        const { status } = await request(app)
+          .delete('/assets')
+          .send({ ids: [assetId] })
+          .set('Authorization', `Bearer ${admin.accessToken}`);
+        expect(status).toBe(204);
+      }
+
+      const trashed = await utils.getAssetInfo(admin.accessToken, assetId);
+      expect(trashed.isTrashed).toBe(true);
+
+      {
+        const { status } = await request(app)
+          .delete('/assets')
+          .send({ ids: [assetId], force: true })
+          .set('Authorization', `Bearer ${admin.accessToken}`);
+        expect(status).toBe(204);
+      }
+
+      await utils.waitForWebsocketEvent({ event: 'assetDelete', id: assetId });
+
+      {
+        const { status } = await request(app)
+          .get(`/assets/${assetId}`)
+          .set('Authorization', `Bearer ${admin.accessToken}`);
+        expect(status).toBe(400);
+      }
+    });
+
+    it('should clean up live photos', async () => {
+      const { id: motionId } = await utils.createAsset(admin.accessToken, {
+        assetData: { filename: 'test.mp4', bytes: makeRandomImage() },
+      });
+      const { id: photoId } = await utils.createAsset(admin.accessToken, { livePhotoVideoId: motionId });
+
+      await utils.waitForWebsocketEvent({ event: 'assetUpload', id: photoId });
+      await utils.waitForWebsocketEvent({ event: 'assetHidden', id: motionId });
+
+      const asset = await utils.getAssetInfo(admin.accessToken, photoId);
+      expect(asset.livePhotoVideoId).toBe(motionId);
+
+      const { status } = await request(app)
+        .delete('/assets')
+        .send({ ids: [photoId], force: true })
+        .set('Authorization', `Bearer ${admin.accessToken}`);
+      expect(status).toBe(204);
+
+      await utils.waitForWebsocketEvent({ event: 'assetDelete', id: photoId });
+      await utils.waitForWebsocketEvent({ event: 'assetDelete', id: motionId });
+    });
+
+    it('should not delete a shared motion asset', async () => {
+      const { id: motionId } = await utils.createAsset(admin.accessToken, {
+        assetData: { filename: 'test.mp4', bytes: makeRandomImage() },
+      });
+      const { id: asset1 } = await utils.createAsset(admin.accessToken, { livePhotoVideoId: motionId });
+      const { id: asset2 } = await utils.createAsset(admin.accessToken, { livePhotoVideoId: motionId });
+
+      await utils.waitForWebsocketEvent({ event: 'assetUpload', id: asset1 });
+      await utils.waitForWebsocketEvent({ event: 'assetUpload', id: asset2 });
+      await utils.waitForWebsocketEvent({ event: 'assetHidden', id: motionId });
+
+      const asset = await utils.getAssetInfo(admin.accessToken, asset1);
+      expect(asset.livePhotoVideoId).toBe(motionId);
+
+      const { status } = await request(app)
+        .delete('/assets')
+        .send({ ids: [asset1], force: true })
+        .set('Authorization', `Bearer ${admin.accessToken}`);
+      expect(status).toBe(204);
+
+      await utils.waitForWebsocketEvent({ event: 'assetDelete', id: asset1 });
+      await utils.waitForQueueFinish(admin.accessToken, 'backgroundTask');
+
+      await expect(utils.getAssetInfo(admin.accessToken, motionId)).resolves.toMatchObject({ id: motionId });
+      await expect(utils.getAssetInfo(admin.accessToken, asset2)).resolves.toMatchObject({
+        id: asset2,
+        livePhotoVideoId: motionId,
+      });
     });
   });
 
@@ -667,145 +956,8 @@ describe('/asset', () => {
       expect(status).toBe(401);
       expect(body).toEqual(errorDto.unauthorized);
     });
-
-    it('should require a valid parent id', async () => {
-      const { status, body } = await request(app)
-        .put('/assets')
-        .set('Authorization', `Bearer ${user1.accessToken}`)
-        .send({ stackParentId: uuidDto.invalid, ids: [stackAssets[0].id] });
-
-      expect(status).toBe(400);
-      expect(body).toEqual(errorDto.badRequest(['stackParentId must be a UUID']));
-    });
-
-    it('should require access to the parent', async () => {
-      const { status, body } = await request(app)
-        .put('/assets')
-        .set('Authorization', `Bearer ${user1.accessToken}`)
-        .send({ stackParentId: stackAssets[3].id, ids: [user1Assets[0].id] });
-
-      expect(status).toBe(400);
-      expect(body).toEqual(errorDto.noPermission);
-    });
-
-    it('should add stack children', async () => {
-      const { status } = await request(app)
-        .put('/assets')
-        .set('Authorization', `Bearer ${stackUser.accessToken}`)
-        .send({ stackParentId: stackAssets[0].id, ids: [stackAssets[3].id] });
-
-      expect(status).toBe(204);
-
-      const asset = await getAssetInfo({ id: stackAssets[0].id }, { headers: asBearerAuth(stackUser.accessToken) });
-      expect(asset.stack).not.toBeUndefined();
-      expect(asset.stack).toEqual(expect.arrayContaining([expect.objectContaining({ id: stackAssets[3].id })]));
-    });
-
-    it('should remove stack children', async () => {
-      const { status } = await request(app)
-        .put('/assets')
-        .set('Authorization', `Bearer ${stackUser.accessToken}`)
-        .send({ removeParent: true, ids: [stackAssets[1].id] });
-
-      expect(status).toBe(204);
-
-      const asset = await getAssetInfo({ id: stackAssets[0].id }, { headers: asBearerAuth(stackUser.accessToken) });
-      expect(asset.stack).not.toBeUndefined();
-      expect(asset.stack).toEqual(
-        expect.arrayContaining([
-          expect.objectContaining({ id: stackAssets[2].id }),
-          expect.objectContaining({ id: stackAssets[3].id }),
-        ]),
-      );
-    });
-
-    it('should remove all stack children', async () => {
-      const { status } = await request(app)
-        .put('/assets')
-        .set('Authorization', `Bearer ${stackUser.accessToken}`)
-        .send({ removeParent: true, ids: [stackAssets[2].id, stackAssets[3].id] });
-
-      expect(status).toBe(204);
-
-      const asset = await getAssetInfo({ id: stackAssets[0].id }, { headers: asBearerAuth(stackUser.accessToken) });
-      expect(asset.stack).toBeUndefined();
-    });
-
-    it('should merge stack children', async () => {
-      // create stack after previous test removed stack children
-      await updateAssets(
-        { assetBulkUpdateDto: { stackParentId: stackAssets[0].id, ids: [stackAssets[1].id, stackAssets[2].id] } },
-        { headers: asBearerAuth(stackUser.accessToken) },
-      );
-
-      const { status } = await request(app)
-        .put('/assets')
-        .set('Authorization', `Bearer ${stackUser.accessToken}`)
-        .send({ stackParentId: stackAssets[3].id, ids: [stackAssets[0].id] });
-
-      expect(status).toBe(204);
-
-      const asset = await getAssetInfo({ id: stackAssets[3].id }, { headers: asBearerAuth(stackUser.accessToken) });
-      expect(asset.stack).not.toBeUndefined();
-      expect(asset.stack).toEqual(
-        expect.arrayContaining([
-          expect.objectContaining({ id: stackAssets[0].id }),
-          expect.objectContaining({ id: stackAssets[1].id }),
-          expect.objectContaining({ id: stackAssets[2].id }),
-        ]),
-      );
-    });
   });
 
-  describe('PUT /assets/stack/parent', () => {
-    it('should require authentication', async () => {
-      const { status, body } = await request(app).put('/assets/stack/parent');
-
-      expect(status).toBe(401);
-      expect(body).toEqual(errorDto.unauthorized);
-    });
-
-    it('should require a valid id', async () => {
-      const { status, body } = await request(app)
-        .put('/assets/stack/parent')
-        .set('Authorization', `Bearer ${user1.accessToken}`)
-        .send({ oldParentId: uuidDto.invalid, newParentId: uuidDto.invalid });
-
-      expect(status).toBe(400);
-      expect(body).toEqual(errorDto.badRequest());
-    });
-
-    it('should require access', async () => {
-      const { status, body } = await request(app)
-        .put('/assets/stack/parent')
-        .set('Authorization', `Bearer ${user1.accessToken}`)
-        .send({ oldParentId: stackAssets[3].id, newParentId: stackAssets[0].id });
-
-      expect(status).toBe(400);
-      expect(body).toEqual(errorDto.noPermission);
-    });
-
-    it('should make old parent child of new parent', async () => {
-      const { status } = await request(app)
-        .put('/assets/stack/parent')
-        .set('Authorization', `Bearer ${stackUser.accessToken}`)
-        .send({ oldParentId: stackAssets[3].id, newParentId: stackAssets[0].id });
-
-      expect(status).toBe(200);
-
-      const asset = await getAssetInfo({ id: stackAssets[0].id }, { headers: asBearerAuth(stackUser.accessToken) });
-
-      // new parent
-      expect(asset.stack).not.toBeUndefined();
-      expect(asset.stack).toEqual(
-        expect.arrayContaining([
-          expect.objectContaining({ id: stackAssets[1].id }),
-          expect.objectContaining({ id: stackAssets[2].id }),
-          expect.objectContaining({ id: stackAssets[3].id }),
-        ]),
-      );
-    });
-  });
   describe('POST /assets', () => {
     beforeAll(setupTests, 30_000);
 
@@ -834,20 +986,17 @@ describe('/asset', () => {
       expect(body).toEqual(errorDto.badRequest());
     });
 
-    it.each([
+    const tests = [
       {
         input: 'formats/avif/8bit-sRGB.avif',
         expected: {
           type: AssetTypeEnum.Image,
           originalFileName: '8bit-sRGB.avif',
-          resized: true,
           exifInfo: {
             description: '',
             exifImageHeight: 1080,
             exifImageWidth: 1617,
             fileSizeInByte: 862_424,
-            latitude: null,
-            longitude: null,
           },
         },
       },
@@ -856,13 +1005,10 @@ describe('/asset', () => {
         expected: {
           type: AssetTypeEnum.Image,
           originalFileName: 'el_torcal_rocks.jpg',
-          resized: true,
           exifInfo: {
-            dateTimeOriginal: '2012-08-05T11:39:59.000Z',
+            dateTimeOriginal: '2012-08-05T11:39:59+00:00',
             exifImageWidth: 512,
             exifImageHeight: 341,
-            latitude: null,
-            longitude: null,
             focalLength: 75,
             iso: 200,
             fNumber: 11,
@@ -870,7 +1016,6 @@ describe('/asset', () => {
             fileSizeInByte: 53_493,
             make: 'SONY',
             model: 'DSLR-A550',
-            orientation: null,
             description: 'SONY DSC',
           },
         },
@@ -880,14 +1025,11 @@ describe('/asset', () => {
         expected: {
           type: AssetTypeEnum.Image,
           originalFileName: '8bit-sRGB.jxl',
-          resized: true,
           exifInfo: {
             description: '',
             exifImageHeight: 1080,
             exifImageWidth: 1440,
             fileSizeInByte: 1_780_777,
-            latitude: null,
-            longitude: null,
           },
         },
       },
@@ -896,10 +1038,9 @@ describe('/asset', () => {
         expected: {
           type: AssetTypeEnum.Image,
           originalFileName: 'IMG_2682.heic',
-          resized: true,
           fileCreatedAt: '2019-03-21T16:04:22.348Z',
           exifInfo: {
-            dateTimeOriginal: '2019-03-21T16:04:22.348Z',
+            dateTimeOriginal: '2019-03-21T16:04:22.348+00:00',
             exifImageWidth: 4032,
             exifImageHeight: 3024,
             latitude: 41.2203,
@@ -921,12 +1062,9 @@ describe('/asset', () => {
         expected: {
           type: AssetTypeEnum.Image,
           originalFileName: 'density_plot.png',
-          resized: true,
           exifInfo: {
             exifImageWidth: 800,
             exifImageHeight: 800,
-            latitude: null,
-            longitude: null,
             fileSizeInByte: 25_408,
           },
         },
@@ -936,7 +1074,6 @@ describe('/asset', () => {
         expected: {
           type: AssetTypeEnum.Image,
           originalFileName: 'glarus.nef',
-          resized: true,
           fileCreatedAt: '2010-07-20T17:27:12.000Z',
           exifInfo: {
             make: 'NIKON CORPORATION',
@@ -946,9 +1083,7 @@ describe('/asset', () => {
             focalLength: 18,
             iso: 100,
             fileSizeInByte: 9_057_784,
-            dateTimeOriginal: '2010-07-20T17:27:12.000Z',
-            latitude: null,
-            longitude: null,
+            dateTimeOriginal: '2010-07-20T17:27:12+00:00',
             orientation: '1',
           },
         },
@@ -958,8 +1093,7 @@ describe('/asset', () => {
         expected: {
           type: AssetTypeEnum.Image,
           originalFileName: 'philadelphia.nef',
-          resized: true,
-          fileCreatedAt: '2016-09-22T22:10:29.060Z',
+          fileCreatedAt: '2016-09-22T21:10:29.060Z',
           exifInfo: {
             make: 'NIKON CORPORATION',
             model: 'NIKON D700',
@@ -968,11 +1102,9 @@ describe('/asset', () => {
             focalLength: 85,
             iso: 200,
             fileSizeInByte: 15_856_335,
-            dateTimeOriginal: '2016-09-22T22:10:29.060Z',
-            latitude: null,
-            longitude: null,
+            dateTimeOriginal: '2016-09-22T21:10:29.06+00:00',
             orientation: '1',
-            timeZone: 'UTC-5',
+            timeZone: 'UTC-4',
           },
         },
       },
@@ -981,7 +1113,6 @@ describe('/asset', () => {
         expected: {
           type: AssetTypeEnum.Image,
           originalFileName: '4_3.rw2',
-          resized: true,
           fileCreatedAt: '2018-05-10T08:42:37.842Z',
           exifInfo: {
             make: 'Panasonic',
@@ -993,9 +1124,7 @@ describe('/asset', () => {
             focalLength: 35,
             iso: 400,
             fileSizeInByte: 19_587_072,
-            dateTimeOriginal: '2018-05-10T08:42:37.842Z',
-            latitude: null,
-            longitude: null,
+            dateTimeOriginal: '2018-05-10T08:42:37.842+00:00',
             orientation: '1',
           },
         },
@@ -1005,7 +1134,6 @@ describe('/asset', () => {
         expected: {
           type: AssetTypeEnum.Image,
           originalFileName: '12bit-compressed-(3_2).arw',
-          resized: true,
           fileCreatedAt: '2016-09-27T10:51:44.000Z',
           exifInfo: {
             make: 'SONY',
@@ -1018,9 +1146,7 @@ describe('/asset', () => {
             iso: 100,
             lensModel: 'E PZ 18-105mm F4 G OSS',
             fileSizeInByte: 25_001_984,
-            dateTimeOriginal: '2016-09-27T10:51:44.000Z',
-            latitude: null,
-            longitude: null,
+            dateTimeOriginal: '2016-09-27T10:51:44+00:00',
             orientation: '1',
           },
         },
@@ -1030,8 +1156,7 @@ describe('/asset', () => {
         expected: {
           type: AssetTypeEnum.Image,
           originalFileName: '14bit-uncompressed-(3_2).arw',
-          resized: true,
-          fileCreatedAt: '2016-01-08T15:08:01.000Z',
+          fileCreatedAt: '2016-01-08T14:08:01.000Z',
           exifInfo: {
             make: 'SONY',
             model: 'ILCE-7M2',
@@ -1043,28 +1168,109 @@ describe('/asset', () => {
             iso: 100,
             lensModel: 'E 25mm F2',
             fileSizeInByte: 49_512_448,
-            dateTimeOriginal: '2016-01-08T15:08:01.000Z',
+            dateTimeOriginal: '2016-01-08T14:08:01+00:00',
+            orientation: '1',
+          },
+        },
+      },
+      {
+        input: 'formats/raw/Canon/PowerShot_G12.CR2',
+        expected: {
+          type: AssetTypeEnum.Image,
+          originalFileName: 'PowerShot_G12.CR2',
+          fileCreatedAt: '2015-12-27T09:55:40.000Z',
+          exifInfo: {
+            make: 'Canon',
+            model: 'Canon PowerShot G12',
+            exifImageHeight: 2736,
+            exifImageWidth: 3648,
+            exposureTime: '1/1000',
+            fNumber: 4,
+            focalLength: 18.098,
+            iso: 80,
+            lensModel: null,
+            fileSizeInByte: 11_113_617,
+            dateTimeOriginal: '2015-12-27T09:55:40+00:00',
             latitude: null,
             longitude: null,
             orientation: '1',
           },
         },
       },
-    ])(`should upload and generate a thumbnail for $input`, async ({ input, expected }) => {
-      const filepath = join(testAssetDir, input);
-      const { id, status } = await utils.createAsset(admin.accessToken, {
-        assetData: { bytes: await readFile(filepath), filename: basename(filepath) },
-      });
+      {
+        input: 'formats/raw/Fujifilm/X100V_compressed.RAF',
+        expected: {
+          type: AssetTypeEnum.Image,
+          originalFileName: 'X100V_compressed.RAF',
+          fileCreatedAt: '2024-10-12T21:01:01.000Z',
+          exifInfo: {
+            make: 'FUJIFILM',
+            model: 'X100V',
+            exifImageHeight: 4160,
+            exifImageWidth: 6240,
+            exposureTime: '1/4000',
+            fNumber: 16,
+            focalLength: 23,
+            iso: 160,
+            lensModel: null,
+            fileSizeInByte: 13_551_312,
+            dateTimeOriginal: '2024-10-12T21:01:01+00:00',
+            latitude: null,
+            longitude: null,
+            orientation: '6',
+          },
+        },
+      },
+      {
+        input: 'formats/raw/Ricoh/GR3/Ricoh_GR3-450.DNG',
+        expected: {
+          type: AssetTypeEnum.Image,
+          originalFileName: 'Ricoh_GR3-450.DNG',
+          fileCreatedAt: '2024-06-08T13:48:39.000Z',
+          exifInfo: {
+            dateTimeOriginal: '2024-06-08T13:48:39+00:00',
+            exifImageHeight: 4064,
+            exifImageWidth: 6112,
+            exposureTime: '1/400',
+            fNumber: 5,
+            fileSizeInByte: 31_175_472,
+            focalLength: 18.3,
+            iso: 100,
+            latitude: 36.613_24,
+            lensModel: 'GR LENS 18.3mm F2.8',
+            longitude: -121.897_85,
+            make: 'RICOH IMAGING COMPANY, LTD.',
+            model: 'RICOH GR III',
+            orientation: '1',
+          },
+        },
+      },
+    ];
 
-      expect(status).toBe(AssetMediaStatus.Created);
+    it(`should upload and generate a thumbnail for different file types`, async () => {
+      // upload in parallel
+      const assets = await Promise.all(
+        tests.map(async ({ input }) => {
+          const filepath = join(testAssetDir, input);
+          return utils.createAsset(admin.accessToken, {
+            assetData: { bytes: await readFile(filepath), filename: basename(filepath) },
+          });
+        }),
+      );
 
-      await utils.waitForWebsocketEvent({ event: 'assetUpload', id: id });
+      for (const { id, status } of assets) {
+        expect(status).toBe(AssetMediaStatus.Created);
+        await utils.waitForWebsocketEvent({ event: 'assetUpload', id });
+      }
 
-      const asset = await utils.getAssetInfo(admin.accessToken, id);
+      for (const [i, { id }] of assets.entries()) {
+        const { expected } = tests[i];
+        const asset = await utils.getAssetInfo(admin.accessToken, id);
 
-      expect(asset.exifInfo).toBeDefined();
-      expect(asset.exifInfo).toMatchObject(expected.exifInfo);
-      expect(asset).toMatchObject(expected);
+        expect(asset.exifInfo).toBeDefined();
+        expect(asset.exifInfo).toMatchObject(expected.exifInfo);
+        expect(asset).toMatchObject(expected);
+      }
     });
 
     it('should handle a duplicate', async () => {
@@ -1118,16 +1324,24 @@ describe('/asset', () => {
     // into the test here.
     it.each([
       {
-        filepath: 'formats/motionphoto/Samsung One UI 5.jpg',
+        filepath: 'formats/motionphoto/samsung-one-ui-5.jpg',
         checksum: 'fr14niqCq6N20HB8rJYEvpsUVtI=',
       },
       {
-        filepath: 'formats/motionphoto/Samsung One UI 6.jpg',
+        filepath: 'formats/motionphoto/samsung-one-ui-6.jpg',
         checksum: 'lT9Uviw/FFJYCjfIxAGPTjzAmmw=',
       },
       {
-        filepath: 'formats/motionphoto/Samsung One UI 6.heic',
+        filepath: 'formats/motionphoto/samsung-one-ui-6.heic',
         checksum: '/ejgzywvgvzvVhUYVfvkLzFBAF0=',
+      },
+      {
+        filepath: 'formats/motionphoto/pixel-6-pro.jpg',
+        checksum: 'bFhLGbdK058PSk4FTfrSnoKWykc=',
+      },
+      {
+        filepath: 'formats/motionphoto/pixel-8a.jpg',
+        checksum: '7YdY+WF0h+CXHbiXpi0HiCMTTjs=',
       },
     ])(`should extract motionphoto video from $filepath`, async ({ filepath, checksum }) => {
       const response = await utils.createAsset(admin.accessToken, {

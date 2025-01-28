@@ -1,12 +1,12 @@
-import { ILoggerRepository } from 'src/interfaces/logger.interface';
+import { ILoggingRepository } from 'src/types';
 import { Mocked, vitest } from 'vitest';
 
-export const newLoggerRepositoryMock = (): Mocked<ILoggerRepository> => {
+export const newLoggingRepositoryMock = (): Mocked<ILoggingRepository> => {
   return {
     setLogLevel: vitest.fn(),
     setContext: vitest.fn(),
     setAppName: vitest.fn(),
-
+    isLevelEnabled: vitest.fn(),
     verbose: vitest.fn(),
     debug: vitest.fn(),
     log: vitest.fn(),

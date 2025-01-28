@@ -2,14 +2,27 @@
   import Checkbox from '$lib/components/elements/checkbox.svelte';
   import { quintOut } from 'svelte/easing';
   import { fly } from 'svelte/transition';
+  import { t } from 'svelte-i18n';
 
-  export let value: string[];
-  export let options: { value: string; text: string }[];
-  export let label = '';
-  export let desc = '';
-  export let name = '';
-  export let isEdited = false;
-  export let disabled = false;
+  interface Props {
+    value: string[];
+    options: { value: string; text: string }[];
+    label?: string;
+    desc?: string;
+    name?: string;
+    isEdited?: boolean;
+    disabled?: boolean;
+  }
+
+  let {
+    value = $bindable(),
+    options,
+    label = '',
+    desc = '',
+    name = '',
+    isEdited = false,
+    disabled = false,
+  }: Props = $props();
 
   function handleCheckboxChange(option: string) {
     value = value.includes(option) ? value.filter((item) => item !== option) : [...value, option];
@@ -18,14 +31,16 @@
 
 <div class="mb-4 w-full">
   <div class={`flex h-[26px] place-items-center gap-1`}>
-    <label class={`immich-form-label text-sm`} for="{name}-select">{label}</label>
+    <label class="font-medium text-immich-primary dark:text-immich-dark-primary text-sm" for="{name}-select">
+      {label}
+    </label>
 
     {#if isEdited}
       <div
         transition:fly={{ x: 10, duration: 200, easing: quintOut }}
         class="rounded-full bg-orange-100 px-2 text-[10px] text-orange-900"
       >
-        Unsaved change
+        {$t('unsaved_change')}
       </div>
     {/if}
   </div>
@@ -43,7 +58,7 @@
         checked={value.includes(option.value)}
         {disabled}
         labelClass="text-gray-500 dark:text-gray-300"
-        on:change={() => handleCheckboxChange(option.value)}
+        onchange={() => handleCheckboxChange(option.value)}
       />
     {/each}
   </div>

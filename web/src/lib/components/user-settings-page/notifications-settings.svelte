@@ -12,9 +12,9 @@
   import Button from '../elements/buttons/button.svelte';
   import { t } from 'svelte-i18n';
 
-  let emailNotificationsEnabled = $preferences?.emailNotifications?.enabled ?? true;
-  let albumInviteNotificationEnabled = $preferences?.emailNotifications?.albumInvite ?? true;
-  let albumUpdateNotificationEnabled = $preferences?.emailNotifications?.albumUpdate ?? true;
+  let emailNotificationsEnabled = $state($preferences?.emailNotifications?.enabled ?? true);
+  let albumInviteNotificationEnabled = $state($preferences?.emailNotifications?.albumInvite ?? true);
+  let albumUpdateNotificationEnabled = $state($preferences?.emailNotifications?.albumUpdate ?? true);
 
   const handleSave = async () => {
     try {
@@ -32,21 +32,24 @@
       $preferences.emailNotifications.albumInvite = data.emailNotifications.albumInvite;
       $preferences.emailNotifications.albumUpdate = data.emailNotifications.albumUpdate;
 
-      notificationController.show({ message: 'Saved settings', type: NotificationType.Info });
+      notificationController.show({ message: $t('saved_settings'), type: NotificationType.Info });
     } catch (error) {
-      handleError(error, 'Unable to update settings');
+      handleError(error, $t('errors.unable_to_update_settings'));
     }
+  };
+
+  const onsubmit = (event: Event) => {
+    event.preventDefault();
   };
 </script>
 
 <section class="my-4">
   <div in:fade={{ duration: 500 }}>
-    <form autocomplete="off" on:submit|preventDefault>
+    <form autocomplete="off" {onsubmit}>
       <div class="ml-4 mt-4 flex flex-col gap-4">
         <div class="ml-4">
           <SettingSwitch
-            title={$t('enable')}
-            subtitle={$t('notification_toggle_setting_description')}
+            title={$t('notification_toggle_setting_description')}
             bind:checked={emailNotificationsEnabled}
           />
         </div>
@@ -68,7 +71,7 @@
         </div>
 
         <div class="flex justify-end">
-          <Button type="submit" size="sm" on:click={() => handleSave()}>{$t('save')}</Button>
+          <Button type="submit" size="sm" onclick={() => handleSave()}>{$t('save')}</Button>
         </div>
       </div>
     </form>

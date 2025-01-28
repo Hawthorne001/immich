@@ -112,6 +112,13 @@ describe('/shared-links', () => {
       expect(resp.header['content-type']).toContain('text/html');
       expect(resp.text).toContain(`<meta name="description" content="1 shared photos & videos" />`);
     });
+
+    it('should have fqdn og:image meta tag for shared asset', async () => {
+      const resp = await request(shareUrl).get(`/${linkWithAssets.key}`);
+      expect(resp.status).toBe(200);
+      expect(resp.header['content-type']).toContain('text/html');
+      expect(resp.text).toContain(`<meta property="og:image" content="http://`);
+    });
   });
 
   describe('GET /shared-links', () => {
@@ -163,7 +170,7 @@ describe('/shared-links', () => {
       expect(status).toBe(200);
       expect(body).toEqual(
         expect.objectContaining({
-          album,
+          album: expect.objectContaining({ id: album.id }),
           userId: user1.userId,
           type: SharedLinkType.Album,
         }),
@@ -201,7 +208,7 @@ describe('/shared-links', () => {
       expect(status).toBe(200);
       expect(body).toEqual(
         expect.objectContaining({
-          album,
+          album: expect.objectContaining({ id: album.id }),
           userId: user1.userId,
           type: SharedLinkType.Album,
         }),
@@ -255,7 +262,7 @@ describe('/shared-links', () => {
       expect(status).toBe(200);
       expect(body).toEqual(
         expect.objectContaining({
-          album,
+          album: expect.objectContaining({ id: album.id }),
           userId: user1.userId,
           type: SharedLinkType.Album,
         }),

@@ -12,7 +12,7 @@ from zipfile import BadZipFile
 
 import orjson
 from fastapi import Depends, FastAPI, File, Form, HTTPException
-from fastapi.responses import ORJSONResponse
+from fastapi.responses import ORJSONResponse, PlainTextResponse
 from onnxruntime.capi.onnxruntime_pybind11_state import InvalidProtobuf, NoSuchFile
 from PIL.Image import Image
 from pydantic import ValidationError
@@ -28,13 +28,12 @@ from .schemas import (
     InferenceEntries,
     InferenceEntry,
     InferenceResponse,
-    MessageResponse,
+    ModelFormat,
     ModelIdentity,
     ModelTask,
     ModelType,
     PipelineRequest,
     T,
-    TextResponse,
 )
 
 MultiPartParser.max_file_size = 2**26  # spools to disk if payload is 64 MiB or larger
@@ -76,20 +75,47 @@ async def lifespan(_: FastAPI) -> AsyncGenerator[None, None]:
 
 
 async def preload_models(preload: PreloadModelData) -> None:
-    log.info(f"Preloading models: {preload}")
-    if preload.clip is not None:
-        model = await model_cache.get(preload.clip, ModelType.TEXTUAL, ModelTask.SEARCH)
-        await load(model)
+    log.info(f"Preloading models: clip:{preload.clip} facial_recognition:{preload.facial_recognition}")
 
-        model = await model_cache.get(preload.clip, ModelType.VISUAL, ModelTask.SEARCH)
-        await load(model)
+    async def load_models(model_string: str, model_type: ModelType, model_task: ModelTask) -> None:
+        for model_name in model_string.split(","):
+            model_name = model_name.strip()
+            model = await model_cache.get(model_name, model_type, model_task)
+            await load(model)
 
-    if preload.facial_recognition is not None:
-        model = await model_cache.get(preload.facial_recognition, ModelType.DETECTION, ModelTask.FACIAL_RECOGNITION)
-        await load(model)
+    if preload.clip.textual is not None:
+        await load_models(preload.clip.textual, ModelType.TEXTUAL, ModelTask.SEARCH)
 
-        model = await model_cache.get(preload.facial_recognition, ModelType.RECOGNITION, ModelTask.FACIAL_RECOGNITION)
-        await load(model)
+    if preload.clip.visual is not None:
+        await load_models(preload.clip.visual, ModelType.VISUAL, ModelTask.SEARCH)
+
+    if preload.facial_recognition.detection is not None:
+        await load_models(
+            preload.facial_recognition.detection,
+            ModelType.DETECTION,
+            ModelTask.FACIAL_RECOGNITION,
+        )
+
+    if preload.facial_recognition.recognition is not None:
+        await load_models(
+            preload.facial_recognition.recognition,
+            ModelType.RECOGNITION,
+            ModelTask.FACIAL_RECOGNITION,
+        )
+
+    if preload.clip_fallback is not None:
+        log.warning(
+            "Deprecated env variable: 'MACHINE_LEARNING_PRELOAD__CLIP'. "
+            "Use 'MACHINE_LEARNING_PRELOAD__CLIP__TEXTUAL' and "
+            "'MACHINE_LEARNING_PRELOAD__CLIP__VISUAL' instead."
+        )
+
+    if preload.facial_recognition_fallback is not None:
+        log.warning(
+            "Deprecated env variable: 'MACHINE_LEARNING_PRELOAD__FACIAL_RECOGNITION'. "
+            "Use 'MACHINE_LEARNING_PRELOAD__FACIAL_RECOGNITION__DETECTION' and "
+            "'MACHINE_LEARNING_PRELOAD__FACIAL_RECOGNITION__RECOGNITION' instead."
+        )
 
 
 def update_state() -> Iterator[None]:
@@ -126,14 +152,14 @@ def get_entries(entries: str = Form()) -> InferenceEntries:
 app = FastAPI(lifespan=lifespan)
 
 
-@app.get("/", response_model=MessageResponse)
-async def root() -> dict[str, str]:
-    return {"message": "Immich ML"}
+@app.get("/")
+async def root() -> ORJSONResponse:
+    return ORJSONResponse({"message": "Immich ML"})
 
 
-@app.get("/ping", response_model=TextResponse)
-def ping() -> str:
-    return "pong"
+@app.get("/ping")
+def ping() -> PlainTextResponse:
+    return PlainTextResponse("pong")
 
 
 @app.post("/predict", dependencies=[Depends(update_state)])
@@ -192,23 +218,28 @@ async def load(model: InferenceModel) -> InferenceModel:
         return model
 
     def _load(model: InferenceModel) -> InferenceModel:
+        if model.load_attempts > 1:
+            raise HTTPException(500, f"Failed to load model '{model.model_name}'")
         with lock:
-            model.load()
+            try:
+                model.load()
+            except FileNotFoundError as e:
+                if model.model_format == ModelFormat.ONNX:
+                    raise e
+                log.exception(e)
+                log.warning(
+                    f"{model.model_format.upper()} is available, but model '{model.model_name}' does not support it."
+                )
+                model.model_format = ModelFormat.ONNX
+                model.load()
         return model
 
     try:
-        await run(_load, model)
-        return model
+        return await run(_load, model)
     except (OSError, InvalidProtobuf, BadZipFile, NoSuchFile):
-        log.warning(
-            (
-                f"Failed to load {model.model_type.replace('_', ' ')} model '{model.model_name}'."
-                "Clearing cache and retrying."
-            )
-        )
+        log.warning(f"Failed to load {model.model_type.replace('_', ' ')} model '{model.model_name}'. Clearing cache.")
         model.clear_cache()
-        await run(_load, model)
-        return model
+        return await run(_load, model)
 
 
 async def idle_shutdown_task() -> None:

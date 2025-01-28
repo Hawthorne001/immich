@@ -1,83 +1,27 @@
-import { RegisterQueueOptions } from '@nestjs/bullmq';
-import { ConfigModuleOptions } from '@nestjs/config';
 import { CronExpression } from '@nestjs/schedule';
-import { QueueOptions } from 'bullmq';
-import { Request, Response } from 'express';
-import { RedisOptions } from 'ioredis';
-import Joi from 'joi';
-import { CLS_ID, ClsModuleOptions } from 'nestjs-cls';
-import { ImmichHeader } from 'src/dtos/auth.dto';
+import {
+  AudioCodec,
+  Colorspace,
+  CQMode,
+  ImageFormat,
+  LogLevel,
+  ToneMapping,
+  TranscodeHWAccel,
+  TranscodePolicy,
+  VideoCodec,
+  VideoContainer,
+} from 'src/enum';
 import { ConcurrentQueueName, QueueName } from 'src/interfaces/job.interface';
-
-export enum TranscodePolicy {
-  ALL = 'all',
-  OPTIMAL = 'optimal',
-  BITRATE = 'bitrate',
-  REQUIRED = 'required',
-  DISABLED = 'disabled',
-}
-
-export enum TranscodeTarget {
-  NONE,
-  AUDIO,
-  VIDEO,
-  ALL,
-}
-
-export enum VideoCodec {
-  H264 = 'h264',
-  HEVC = 'hevc',
-  VP9 = 'vp9',
-  AV1 = 'av1',
-}
-
-export enum AudioCodec {
-  MP3 = 'mp3',
-  AAC = 'aac',
-  LIBOPUS = 'libopus',
-}
-
-export enum TranscodeHWAccel {
-  NVENC = 'nvenc',
-  QSV = 'qsv',
-  VAAPI = 'vaapi',
-  RKMPP = 'rkmpp',
-  DISABLED = 'disabled',
-}
-
-export enum ToneMapping {
-  HABLE = 'hable',
-  MOBIUS = 'mobius',
-  REINHARD = 'reinhard',
-  DISABLED = 'disabled',
-}
-
-export enum CQMode {
-  AUTO = 'auto',
-  CQP = 'cqp',
-  ICQ = 'icq',
-}
-
-export enum Colorspace {
-  SRGB = 'srgb',
-  P3 = 'p3',
-}
-
-export enum ImageFormat {
-  JPEG = 'jpeg',
-  WEBP = 'webp',
-}
-
-export enum LogLevel {
-  VERBOSE = 'verbose',
-  DEBUG = 'debug',
-  LOG = 'log',
-  WARN = 'warn',
-  ERROR = 'error',
-  FATAL = 'fatal',
-}
+import { ImageOptions } from 'src/types';
 
 export interface SystemConfig {
+  backup: {
+    database: {
+      enabled: boolean;
+      cronExpression: string;
+      keepLastAmount: number;
+    };
+  };
   ffmpeg: {
     crf: number;
     threads: number;
@@ -86,12 +30,12 @@ export interface SystemConfig {
     acceptedVideoCodecs: VideoCodec[];
     targetAudioCodec: AudioCodec;
     acceptedAudioCodecs: AudioCodec[];
+    acceptedContainers: VideoContainer[];
     targetResolution: string;
     maxBitrate: string;
     bframes: number;
     refs: number;
     gopSize: number;
-    npl: number;
     temporalAQ: boolean;
     cqMode: CQMode;
     twoPass: boolean;
@@ -108,7 +52,7 @@ export interface SystemConfig {
   };
   machineLearning: {
     enabled: boolean;
-    url: string;
+    urls: string[];
     clip: {
       enabled: boolean;
       modelName: string;
@@ -133,6 +77,11 @@ export interface SystemConfig {
   reverseGeocoding: {
     enabled: boolean;
   };
+  metadata: {
+    faces: {
+      import: boolean;
+    };
+  };
   oauth: {
     autoLaunch: boolean;
     autoRegister: boolean;
@@ -146,6 +95,7 @@ export interface SystemConfig {
     mobileRedirectUri: string;
     scope: string;
     signingAlgorithm: string;
+    profileSigningAlgorithm: string;
     storageLabelClaim: string;
     storageQuotaClaim: string;
   };
@@ -158,11 +108,8 @@ export interface SystemConfig {
     template: string;
   };
   image: {
-    thumbnailFormat: ImageFormat;
-    thumbnailSize: number;
-    previewFormat: ImageFormat;
-    previewSize: number;
-    quality: number;
+    thumbnail: ImageOptions;
+    preview: ImageOptions;
     colorspace: Colorspace;
     extractEmbedded: boolean;
   };
@@ -199,9 +146,17 @@ export interface SystemConfig {
       };
     };
   };
+  templates: {
+    email: {
+      welcomeTemplate: string;
+      albumInviteTemplate: string;
+      albumUpdateTemplate: string;
+    };
+  };
   server: {
     externalDomain: string;
     loginPageMessage: string;
+    publicUsers: boolean;
   };
   user: {
     deleteDelay: number;
@@ -209,6 +164,13 @@ export interface SystemConfig {
 }
 
 export const defaults = Object.freeze<SystemConfig>({
+  backup: {
+    database: {
+      enabled: true,
+      cronExpression: CronExpression.EVERY_DAY_AT_2AM,
+      keepLastAmount: 14,
+    },
+  },
   ffmpeg: {
     crf: 23,
     threads: 0,
@@ -216,13 +178,13 @@ export const defaults = Object.freeze<SystemConfig>({
     targetVideoCodec: VideoCodec.H264,
     acceptedVideoCodecs: [VideoCodec.H264],
     targetAudioCodec: AudioCodec.AAC,
-    acceptedAudioCodecs: [AudioCodec.AAC, AudioCodec.MP3, AudioCodec.LIBOPUS],
+    acceptedAudioCodecs: [AudioCodec.AAC, AudioCodec.MP3, AudioCodec.LIBOPUS, AudioCodec.PCMS16LE],
+    acceptedContainers: [VideoContainer.MOV, VideoContainer.OGG, VideoContainer.WEBM],
     targetResolution: '720',
     maxBitrate: '0',
     bframes: -1,
     refs: 0,
     gopSize: 0,
-    npl: 0,
     temporalAQ: false,
     cqMode: CQMode.AUTO,
     twoPass: false,
@@ -251,14 +213,14 @@ export const defaults = Object.freeze<SystemConfig>({
   },
   machineLearning: {
     enabled: process.env.IMMICH_MACHINE_LEARNING_ENABLED !== 'false',
-    url: process.env.IMMICH_MACHINE_LEARNING_URL || 'http://immich-machine-learning:3003',
+    urls: [process.env.IMMICH_MACHINE_LEARNING_URL || 'http://immich-machine-learning:3003'],
     clip: {
       enabled: true,
       modelName: 'ViT-B-32__openai',
     },
     duplicateDetection: {
       enabled: true,
-      maxDistance: 0.0155,
+      maxDistance: 0.01,
     },
     facialRecognition: {
       enabled: true,
@@ -270,11 +232,16 @@ export const defaults = Object.freeze<SystemConfig>({
   },
   map: {
     enabled: true,
-    lightStyle: '',
-    darkStyle: '',
+    lightStyle: 'https://tiles.immich.cloud/v1/style/light.json',
+    darkStyle: 'https://tiles.immich.cloud/v1/style/dark.json',
   },
   reverseGeocoding: {
     enabled: true,
+  },
+  metadata: {
+    faces: {
+      import: false,
+    },
   },
   oauth: {
     autoLaunch: false,
@@ -289,6 +256,7 @@ export const defaults = Object.freeze<SystemConfig>({
     mobileRedirectUri: '',
     scope: 'openid email profile',
     signingAlgorithm: 'RS256',
+    profileSigningAlgorithm: 'none',
     storageLabelClaim: 'preferred_username',
     storageQuotaClaim: 'immich_quota',
   },
@@ -301,11 +269,16 @@ export const defaults = Object.freeze<SystemConfig>({
     template: '{{y}}/{{y}}-{{MM}}-{{dd}}/{{filename}}',
   },
   image: {
-    thumbnailFormat: ImageFormat.WEBP,
-    thumbnailSize: 250,
-    previewFormat: ImageFormat.JPEG,
-    previewSize: 1440,
-    quality: 80,
+    thumbnail: {
+      format: ImageFormat.WEBP,
+      size: 250,
+      quality: 80,
+    },
+    preview: {
+      format: ImageFormat.JPEG,
+      size: 1440,
+      quality: 80,
+    },
     colorspace: Colorspace.P3,
     extractEmbedded: false,
   },
@@ -331,6 +304,7 @@ export const defaults = Object.freeze<SystemConfig>({
   server: {
     externalDomain: '',
     loginPageMessage: '',
+    publicUsers: true,
   },
   notifications: {
     smtp: {
@@ -346,86 +320,14 @@ export const defaults = Object.freeze<SystemConfig>({
       },
     },
   },
+  templates: {
+    email: {
+      welcomeTemplate: '',
+      albumInviteTemplate: '',
+      albumUpdateTemplate: '',
+    },
+  },
   user: {
     deleteDelay: 7,
   },
 });
-
-const WHEN_DB_URL_SET = Joi.when('DB_URL', {
-  is: Joi.exist(),
-  then: Joi.string().optional(),
-  otherwise: Joi.string().required(),
-});
-
-export const immichAppConfig: ConfigModuleOptions = {
-  envFilePath: '.env',
-  isGlobal: true,
-  validationSchema: Joi.object({
-    IMMICH_ENV: Joi.string().optional().valid('development', 'production').default('production'),
-    IMMICH_LOG_LEVEL: Joi.string()
-      .optional()
-      .valid(...Object.values(LogLevel)),
-
-    DB_USERNAME: WHEN_DB_URL_SET,
-    DB_PASSWORD: WHEN_DB_URL_SET,
-    DB_DATABASE_NAME: WHEN_DB_URL_SET,
-    DB_URL: Joi.string().optional(),
-    DB_VECTOR_EXTENSION: Joi.string().optional().valid('pgvector', 'pgvecto.rs').default('pgvecto.rs'),
-    DB_SKIP_MIGRATIONS: Joi.boolean().optional().default(false),
-
-    IMMICH_PORT: Joi.number().optional(),
-    IMMICH_API_METRICS_PORT: Joi.number().optional(),
-    IMMICH_MICROSERVICES_METRICS_PORT: Joi.number().optional(),
-
-    IMMICH_METRICS: Joi.boolean().optional().default(false),
-    IMMICH_HOST_METRICS: Joi.boolean().optional().default(false),
-    IMMICH_API_METRICS: Joi.boolean().optional().default(false),
-    IMMICH_IO_METRICS: Joi.boolean().optional().default(false),
-  }),
-};
-
-function parseRedisConfig(): RedisOptions {
-  const redisUrl = process.env.REDIS_URL;
-  if (redisUrl && redisUrl.startsWith('ioredis://')) {
-    try {
-      const decodedString = Buffer.from(redisUrl.slice(10), 'base64').toString();
-      return JSON.parse(decodedString);
-    } catch (error) {
-      throw new Error(`Failed to decode redis options: ${error}`);
-    }
-  }
-  return {
-    host: process.env.REDIS_HOSTNAME || 'redis',
-    port: Number.parseInt(process.env.REDIS_PORT || '6379'),
-    db: Number.parseInt(process.env.REDIS_DBINDEX || '0'),
-    username: process.env.REDIS_USERNAME || undefined,
-    password: process.env.REDIS_PASSWORD || undefined,
-    path: process.env.REDIS_SOCKET || undefined,
-  };
-}
-
-export const bullConfig: QueueOptions = {
-  prefix: 'immich_bull',
-  connection: parseRedisConfig(),
-  defaultJobOptions: {
-    attempts: 3,
-    removeOnComplete: true,
-    removeOnFail: false,
-  },
-};
-
-export const bullQueues: RegisterQueueOptions[] = Object.values(QueueName).map((name) => ({ name }));
-
-export const clsConfig: ClsModuleOptions = {
-  middleware: {
-    mount: true,
-    generateId: true,
-    setup: (cls, req: Request, res: Response) => {
-      const headerValues = req.headers[ImmichHeader.CID];
-      const headerValue = Array.isArray(headerValues) ? headerValues[0] : headerValues;
-      const cid = headerValue || cls.get(CLS_ID);
-      cls.set(CLS_ID, cid);
-      res.header(ImmichHeader.CID, cid);
-    },
-  },
-};

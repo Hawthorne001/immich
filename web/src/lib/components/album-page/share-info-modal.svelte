@@ -8,32 +8,29 @@
     AlbumUserRole,
   } from '@immich/sdk';
   import { mdiDotsVertical } from '@mdi/js';
-  import { createEventDispatcher, onMount } from 'svelte';
-  import { getContextMenuPosition } from '../../utils/context-menu';
+  import { onMount } from 'svelte';
   import { handleError } from '../../utils/handle-error';
-  import CircleIconButton from '../elements/buttons/circle-icon-button.svelte';
   import ConfirmDialog from '../shared-components/dialog/confirm-dialog.svelte';
-  import ContextMenu from '../shared-components/context-menu/context-menu.svelte';
   import MenuOption from '../shared-components/context-menu/menu-option.svelte';
   import { NotificationType, notificationController } from '../shared-components/notification/notification';
   import UserAvatar from '../shared-components/user-avatar.svelte';
   import FullScreenModal from '$lib/components/shared-components/full-screen-modal.svelte';
   import { t } from 'svelte-i18n';
+  import ButtonContextMenu from '$lib/components/shared-components/context-menu/button-context-menu.svelte';
 
-  export let album: AlbumResponseDto;
-  export let onClose: () => void;
+  interface Props {
+    album: AlbumResponseDto;
+    onClose: () => void;
+    onRemove: (userId: string) => void;
+    onRefreshAlbum: () => void;
+  }
 
-  const dispatch = createEventDispatcher<{
-    remove: string;
-    refreshAlbum: void;
-  }>();
+  let { album, onClose, onRemove, onRefreshAlbum }: Props = $props();
 
-  let currentUser: UserResponseDto;
-  let position = { x: 0, y: 0 };
-  let selectedMenuUser: UserResponseDto | null = null;
-  let selectedRemoveUser: UserResponseDto | null = null;
+  let currentUser: UserResponseDto | undefined = $state();
+  let selectedRemoveUser: UserResponseDto | null = $state(null);
 
-  $: isOwned = currentUser?.id == album.ownerId;
+  let isOwned = $derived(currentUser?.id == album.ownerId);
 
   onMount(async () => {
     try {
@@ -43,15 +40,8 @@
     }
   });
 
-  const showContextMenu = (event: MouseEvent, user: UserResponseDto) => {
-    position = getContextMenuPosition(event);
-    selectedMenuUser = user;
-    selectedRemoveUser = null;
-  };
-
-  const handleMenuRemove = () => {
-    selectedRemoveUser = selectedMenuUser;
-    selectedMenuUser = null;
+  const handleMenuRemove = (user: UserResponseDto) => {
+    selectedRemoveUser = user;
   };
 
   const handleRemoveUser = async () => {
@@ -63,8 +53,11 @@
 
     try {
       await removeUserFromAlbum({ id: album.id, userId });
-      dispatch('remove', userId);
-      const message = userId === 'me' ? `Left ${album.albumName}` : `Removed ${selectedRemoveUser.name}`;
+      onRemove(userId);
+      const message =
+        userId === 'me'
+          ? $t('album_user_left', { values: { album: album.albumName } })
+          : $t('album_user_removed', { values: { user: selectedRemoveUser.name } });
       notificationController.show({ type: NotificationType.Info, message });
     } catch (error) {
       handleError(error, $t('errors.unable_to_remove_album_users'));
@@ -76,8 +69,10 @@
   const handleSetReadonly = async (user: UserResponseDto, role: AlbumUserRole) => {
     try {
       await updateAlbumUser({ id: album.id, userId: user.id, updateAlbumUserDto: { role } });
-      const message = `Set ${user.name} as ${role}`;
-      dispatch('refreshAlbum');
+      const message = $t('user_role_set', {
+        values: { user: user.name, role: role == AlbumUserRole.Viewer ? $t('role_viewer') : $t('role_editor') },
+      });
+      onRefreshAlbum();
       notificationController.show({ type: NotificationType.Info, message });
     } catch (error) {
       handleError(error, $t('errors.unable_to_change_album_user_role'));
@@ -112,41 +107,27 @@
           <div id="icon-{user.id}" class="flex place-items-center gap-2 text-sm">
             <div>
               {#if role === AlbumUserRole.Viewer}
-                Viewer
+                {$t('role_viewer')}
               {:else}
-                Editor
+                {$t('role_editor')}
               {/if}
             </div>
             {#if isOwned}
-              <div>
-                <CircleIconButton
-                  title={$t('options')}
-                  on:click={(event) => showContextMenu(event, user)}
-                  icon={mdiDotsVertical}
-                  size="20"
-                />
-
-                {#if selectedMenuUser === user}
-                  <ContextMenu {...position} onClose={() => (selectedMenuUser = null)}>
-                    {#if role === AlbumUserRole.Viewer}
-                      <MenuOption
-                        on:click={() => handleSetReadonly(user, AlbumUserRole.Editor)}
-                        text={$t('allow_edits')}
-                      />
-                    {:else}
-                      <MenuOption
-                        on:click={() => handleSetReadonly(user, AlbumUserRole.Viewer)}
-                        text={$t('disallow_edits')}
-                      />
-                    {/if}
-                    <MenuOption on:click={handleMenuRemove} text={$t('remove')} />
-                  </ContextMenu>
+              <ButtonContextMenu icon={mdiDotsVertical} size="20" title={$t('options')}>
+                {#if role === AlbumUserRole.Viewer}
+                  <MenuOption onClick={() => handleSetReadonly(user, AlbumUserRole.Editor)} text={$t('allow_edits')} />
+                {:else}
+                  <MenuOption
+                    onClick={() => handleSetReadonly(user, AlbumUserRole.Viewer)}
+                    text={$t('disallow_edits')}
+                  />
                 {/if}
-              </div>
+                <MenuOption onClick={() => handleMenuRemove(user)} text={$t('remove')} />
+              </ButtonContextMenu>
             {:else if user.id == currentUser?.id}
               <button
                 type="button"
-                on:click={() => (selectedRemoveUser = user)}
+                onclick={() => (selectedRemoveUser = user)}
                 class="text-sm font-medium text-immich-primary transition-colors hover:text-immich-primary/75 dark:text-immich-dark-primary"
                 >{$t('leave')}</button
               >
@@ -160,8 +141,8 @@
 
 {#if selectedRemoveUser && selectedRemoveUser?.id === currentUser?.id}
   <ConfirmDialog
-    title="Leave album?"
-    prompt="Are you sure you want to leave {album.albumName}?"
+    title={$t('album_leave')}
+    prompt={$t('album_leave_confirmation', { values: { album: album.albumName } })}
     confirmText={$t('leave')}
     onConfirm={handleRemoveUser}
     onCancel={() => (selectedRemoveUser = null)}
@@ -170,9 +151,9 @@
 
 {#if selectedRemoveUser && selectedRemoveUser?.id !== currentUser?.id}
   <ConfirmDialog
-    title="Remove user?"
-    prompt="Are you sure you want to remove {selectedRemoveUser.name}?"
-    confirmText={$t('remove')}
+    title={$t('album_remove_user')}
+    prompt={$t('album_remove_user_confirmation', { values: { user: selectedRemoveUser.name } })}
+    confirmText={$t('remove_user')}
     onConfirm={handleRemoveUser}
     onCancel={() => (selectedRemoveUser = null)}
   />

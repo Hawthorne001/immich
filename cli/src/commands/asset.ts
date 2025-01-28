@@ -1,5 +1,6 @@
 import {
   Action,
+  AssetBulkUploadCheckItem,
   AssetBulkUploadCheckResult,
   AssetMediaResponseDto,
   AssetMediaStatus,
@@ -11,12 +12,12 @@ import {
   getSupportedMediaTypes,
 } from '@immich/sdk';
 import byteSize from 'byte-size';
-import { Presets, SingleBar } from 'cli-progress';
+import { MultiBar, Presets, SingleBar } from 'cli-progress';
 import { chunk } from 'lodash-es';
 import { Stats, createReadStream } from 'node:fs';
 import { stat, unlink } from 'node:fs/promises';
-import os from 'node:os';
 import path, { basename } from 'node:path';
+import { Queue } from 'src/queue';
 import { BaseOptions, authenticate, crawl, sha1 } from 'src/utils';
 
 const s = (count: number) => (count === 1 ? '' : 's');
@@ -25,7 +26,7 @@ const s = (count: number) => (count === 1 ? '' : 's');
 type AssetBulkUploadCheckResults = Array<AssetBulkUploadCheckResult & { id: string }>;
 type Asset = { id: string; filepath: string };
 
-interface UploadOptionsDto {
+export interface UploadOptionsDto {
   recursive?: boolean;
   ignore?: string;
   dryRun?: boolean;
@@ -84,48 +85,93 @@ const scan = async (pathsToCrawl: string[], options: UploadOptionsDto) => {
   return files;
 };
 
-const checkForDuplicates = async (files: string[], { concurrency, skipHash }: UploadOptionsDto) => {
+export const checkForDuplicates = async (files: string[], { concurrency, skipHash }: UploadOptionsDto) => {
   if (skipHash) {
     console.log('Skipping hash check, assuming all files are new');
     return { newFiles: files, duplicates: [] };
   }
 
-  const progressBar = new SingleBar(
-    { format: 'Checking files | {bar} | {percentage}% | ETA: {eta}s | {value}/{total} assets' },
+  const multiBar = new MultiBar(
+    { format: '{message} | {bar} | {percentage}% | ETA: {eta}s | {value}/{total} assets' },
     Presets.shades_classic,
   );
 
-  progressBar.start(files.length, 0);
+  const hashProgressBar = multiBar.create(files.length, 0, { message: 'Hashing files          ' });
+  const checkProgressBar = multiBar.create(files.length, 0, { message: 'Checking for duplicates' });
 
   const newFiles: string[] = [];
   const duplicates: Asset[] = [];
 
-  try {
-    // TODO refactor into a queue
-    for (const items of chunk(files, concurrency)) {
-      const dto = await Promise.all(items.map(async (filepath) => ({ id: filepath, checksum: await sha1(filepath) })));
-      const { results } = await checkBulkUpload({ assetBulkUploadCheckDto: { assets: dto } });
+  const checkBulkUploadQueue = new Queue<AssetBulkUploadCheckItem[], void>(
+    async (assets: AssetBulkUploadCheckItem[]) => {
+      const response = await checkBulkUpload({ assetBulkUploadCheckDto: { assets } });
 
-      for (const { id: filepath, assetId, action } of results as AssetBulkUploadCheckResults) {
+      const results = response.results as AssetBulkUploadCheckResults;
+
+      for (const { id: filepath, assetId, action } of results) {
         if (action === Action.Accept) {
           newFiles.push(filepath);
         } else {
           // rejects are always duplicates
           duplicates.push({ id: assetId as string, filepath });
         }
-        progressBar.increment();
       }
-    }
-  } finally {
-    progressBar.stop();
+
+      checkProgressBar.increment(assets.length);
+    },
+    { concurrency, retry: 3 },
+  );
+
+  const results: { id: string; checksum: string }[] = [];
+  let checkBulkUploadRequests: AssetBulkUploadCheckItem[] = [];
+
+  const queue = new Queue<string, AssetBulkUploadCheckItem[]>(
+    async (filepath: string): Promise<AssetBulkUploadCheckItem[]> => {
+      const dto = { id: filepath, checksum: await sha1(filepath) };
+
+      results.push(dto);
+      checkBulkUploadRequests.push(dto);
+      if (checkBulkUploadRequests.length === 5000) {
+        const batch = checkBulkUploadRequests;
+        checkBulkUploadRequests = [];
+        void checkBulkUploadQueue.push(batch);
+      }
+
+      hashProgressBar.increment();
+      return results;
+    },
+    { concurrency, retry: 3 },
+  );
+
+  for (const item of files) {
+    void queue.push(item);
   }
 
+  await queue.drained();
+
+  if (checkBulkUploadRequests.length > 0) {
+    void checkBulkUploadQueue.push(checkBulkUploadRequests);
+  }
+
+  await checkBulkUploadQueue.drained();
+
+  multiBar.stop();
+
   console.log(`Found ${newFiles.length} new files and ${duplicates.length} duplicate${s(duplicates.length)}`);
+
+  // Report failures
+  const failedTasks = queue.tasks.filter((task) => task.status === 'failed');
+  if (failedTasks.length > 0) {
+    console.log(`Failed to verify ${failedTasks.length} file${s(failedTasks.length)}:`);
+    for (const task of failedTasks) {
+      console.log(`- ${task.data} - ${task.error}`);
+    }
+  }
 
   return { newFiles, duplicates };
 };
 
-const uploadFiles = async (files: string[], { dryRun, concurrency }: UploadOptionsDto): Promise<Asset[]> => {
+export const uploadFiles = async (files: string[], { dryRun, concurrency }: UploadOptionsDto): Promise<Asset[]> => {
   if (files.length === 0) {
     console.log('All assets were already uploaded, nothing to do.');
     return [];
@@ -159,37 +205,52 @@ const uploadFiles = async (files: string[], { dryRun, concurrency }: UploadOptio
 
   const newAssets: Asset[] = [];
 
-  try {
-    for (const items of chunk(files, concurrency)) {
-      await Promise.all(
-        items.map(async (filepath) => {
-          const stats = statsMap.get(filepath) as Stats;
-          const response = await uploadFile(filepath, stats);
+  const queue = new Queue<string, AssetMediaResponseDto>(
+    async (filepath: string) => {
+      const stats = statsMap.get(filepath);
+      if (!stats) {
+        throw new Error(`Stats not found for ${filepath}`);
+      }
 
-          newAssets.push({ id: response.id, filepath });
+      const response = await uploadFile(filepath, stats);
+      newAssets.push({ id: response.id, filepath });
+      if (response.status === AssetMediaStatus.Duplicate) {
+        duplicateCount++;
+        duplicateSize += stats.size ?? 0;
+      } else {
+        successCount++;
+        successSize += stats.size ?? 0;
+      }
 
-          if (response.status === AssetMediaStatus.Duplicate) {
-            duplicateCount++;
-            duplicateSize += stats.size ?? 0;
-          } else {
-            successCount++;
-            successSize += stats.size ?? 0;
-          }
+      uploadProgress.update(successSize, { value_formatted: byteSize(successSize + duplicateSize) });
 
-          uploadProgress.update(successSize, { value_formatted: byteSize(successSize + duplicateSize) });
+      return response;
+    },
+    { concurrency, retry: 3 },
+  );
 
-          return response;
-        }),
-      );
-    }
-  } finally {
-    uploadProgress.stop();
+  for (const item of files) {
+    void queue.push(item);
   }
+
+  await queue.drained();
+
+  uploadProgress.stop();
 
   console.log(`Successfully uploaded ${successCount} new asset${s(successCount)} (${byteSize(successSize)})`);
   if (duplicateCount > 0) {
     console.log(`Skipped ${duplicateCount} duplicate asset${s(duplicateCount)} (${byteSize(duplicateSize)})`);
   }
+
+  // Report failures
+  const failedTasks = queue.tasks.filter((task) => task.status === 'failed');
+  if (failedTasks.length > 0) {
+    console.log(`Failed to upload ${failedTasks.length} asset${s(failedTasks.length)}:`);
+    for (const task of failedTasks) {
+      console.log(`- ${task.data} - ${task.error}`);
+    }
+  }
+
   return newAssets;
 };
 
@@ -346,7 +407,9 @@ const updateAlbums = async (assets: Asset[], options: UploadOptionsDto) => {
   }
 };
 
-const getAlbumName = (filepath: string, options: UploadOptionsDto) => {
-  const folderName = os.platform() === 'win32' ? filepath.split('\\').at(-2) : filepath.split('/').at(-2);
-  return options.albumName ?? folderName;
+// `filepath` valid format:
+// - Windows: `D:\\test\\Filename.txt` or `D:/test/Filename.txt`
+// - Unix: `/test/Filename.txt`
+export const getAlbumName = (filepath: string, options: UploadOptionsDto) => {
+  return options.albumName ?? path.basename(path.dirname(filepath));
 };

@@ -30,6 +30,7 @@ describe('mimeTypes', () => {
     { mimetype: 'image/kdc', extension: '.kdc' },
     { mimetype: 'image/mrw', extension: '.mrw' },
     { mimetype: 'image/nef', extension: '.nef' },
+    { mimetype: 'image/nrw', extension: '.nrw' },
     { mimetype: 'image/orf', extension: '.orf' },
     { mimetype: 'image/ori', extension: '.ori' },
     { mimetype: 'image/pef', extension: '.pef' },
@@ -77,6 +78,7 @@ describe('mimeTypes', () => {
     { mimetype: 'video/3gpp', extension: '.3gp' },
     { mimetype: 'video/3gpp', extension: '.3gpp' },
     { mimetype: 'video/avi', extension: '.avi' },
+    { mimetype: 'video/mp2t', extension: '.m2t' },
     { mimetype: 'video/mp2t', extension: '.m2ts' },
     { mimetype: 'video/mp2t', extension: '.mts' },
     { mimetype: 'video/mp4', extension: '.mp4' },
@@ -91,6 +93,7 @@ describe('mimeTypes', () => {
     { mimetype: 'video/x-matroska', extension: '.mkv' },
     { mimetype: 'video/x-ms-wmv', extension: '.wmv' },
     { mimetype: 'video/x-msvideo', extension: '.avi' },
+    { mimetype: 'video/mpeg', extension: '.vob' },
   ]) {
     it(`should map ${extension} to ${mimetype}`, () => {
       expect({ ...mimeTypes.image, ...mimeTypes.video }[extension]).toContain(mimetype);
@@ -145,7 +148,7 @@ describe('mimeTypes', () => {
 
     it('should be a sorted list', () => {
       const keys = Object.keys(mimeTypes.video);
-      expect(keys).toEqual([...keys].sort());
+      expect(keys).toEqual(keys.toSorted());
     });
 
     it('should contain only video mime types', () => {
@@ -171,7 +174,7 @@ describe('mimeTypes', () => {
 
     it('should be a sorted list', () => {
       const keys = Object.keys(mimeTypes.sidecar);
-      expect(keys).toEqual([...keys].sort());
+      expect(keys).toEqual(keys.toSorted());
     });
 
     it('should contain only xml mime types', () => {

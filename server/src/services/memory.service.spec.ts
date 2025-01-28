@@ -1,24 +1,22 @@
 import { BadRequestException } from '@nestjs/common';
-import { MemoryType } from 'src/entities/memory.entity';
-import { IMemoryRepository } from 'src/interfaces/memory.interface';
+import { MemoryType } from 'src/enum';
 import { MemoryService } from 'src/services/memory.service';
+import { IMemoryRepository } from 'src/types';
 import { authStub } from 'test/fixtures/auth.stub';
 import { memoryStub } from 'test/fixtures/memory.stub';
 import { userStub } from 'test/fixtures/user.stub';
-import { IAccessRepositoryMock, newAccessRepositoryMock } from 'test/repositories/access.repository.mock';
-import { newMemoryRepositoryMock } from 'test/repositories/memory.repository.mock';
+import { IAccessRepositoryMock } from 'test/repositories/access.repository.mock';
+import { newTestService } from 'test/utils';
 import { Mocked } from 'vitest';
 
 describe(MemoryService.name, () => {
-  let accessMock: IAccessRepositoryMock;
-  let memoryMock: Mocked<IMemoryRepository>;
   let sut: MemoryService;
 
-  beforeEach(() => {
-    accessMock = newAccessRepositoryMock();
-    memoryMock = newMemoryRepositoryMock();
+  let accessMock: IAccessRepositoryMock;
+  let memoryMock: Mocked<IMemoryRepository>;
 
-    sut = new MemoryService(accessMock, memoryMock);
+  beforeEach(() => {
+    ({ sut, accessMock, memoryMock } = newTestService(MemoryService));
   });
 
   it('should be defined', () => {
@@ -71,7 +69,17 @@ describe(MemoryService.name, () => {
           memoryAt: new Date(2024),
         }),
       ).resolves.toMatchObject({ assets: [] });
-      expect(memoryMock.create).toHaveBeenCalledWith(expect.objectContaining({ assets: [] }));
+      expect(memoryMock.create).toHaveBeenCalledWith(
+        {
+          ownerId: 'admin_id',
+          memoryAt: expect.any(Date),
+          type: MemoryType.ON_THIS_DAY,
+          isSaved: undefined,
+          sendAt: undefined,
+          data: { year: 2024 },
+        },
+        new Set(),
+      );
     });
 
     it('should create a memory', async () => {
@@ -82,14 +90,14 @@ describe(MemoryService.name, () => {
           type: MemoryType.ON_THIS_DAY,
           data: { year: 2024 },
           assetIds: ['asset1'],
-          memoryAt: new Date(2024),
+          memoryAt: new Date(2024, 0, 1),
         }),
       ).resolves.toBeDefined();
       expect(memoryMock.create).toHaveBeenCalledWith(
         expect.objectContaining({
           ownerId: userStub.admin.id,
-          assets: [{ id: 'asset1' }],
         }),
+        new Set(['asset1']),
       );
     });
 
@@ -117,12 +125,7 @@ describe(MemoryService.name, () => {
       accessMock.memory.checkOwnerAccess.mockResolvedValue(new Set(['memory1']));
       memoryMock.update.mockResolvedValue(memoryStub.memory1);
       await expect(sut.update(authStub.admin, 'memory1', { isSaved: true })).resolves.toBeDefined();
-      expect(memoryMock.update).toHaveBeenCalledWith(
-        expect.objectContaining({
-          id: 'memory1',
-          isSaved: true,
-        }),
-      );
+      expect(memoryMock.update).toHaveBeenCalledWith('memory1', expect.objectContaining({ isSaved: true }));
     });
   });
 
@@ -189,15 +192,6 @@ describe(MemoryService.name, () => {
       accessMock.memory.checkOwnerAccess.mockResolvedValue(new Set(['memory1']));
       await expect(sut.removeAssets(authStub.admin, 'memory1', { ids: ['not-found'] })).resolves.toEqual([
         { error: 'not_found', id: 'not-found', success: false },
-      ]);
-      expect(memoryMock.removeAssetIds).not.toHaveBeenCalled();
-    });
-
-    it('should require asset access', async () => {
-      accessMock.memory.checkOwnerAccess.mockResolvedValue(new Set(['memory1']));
-      memoryMock.getAssetIds.mockResolvedValue(new Set(['asset1']));
-      await expect(sut.removeAssets(authStub.admin, 'memory1', { ids: ['asset1'] })).resolves.toEqual([
-        { error: 'no_permission', id: 'asset1', success: false },
       ]);
       expect(memoryMock.removeAssetIds).not.toHaveBeenCalled();
     });

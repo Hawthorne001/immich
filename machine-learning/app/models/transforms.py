@@ -1,12 +1,15 @@
+import string
 from io import BytesIO
 from typing import IO
 
 import cv2
 import numpy as np
+import orjson
 from numpy.typing import NDArray
 from PIL import Image
 
 _PIL_RESAMPLING_METHODS = {resampling.name.lower(): resampling for resampling in Image.Resampling}
+_PUNCTUATION_TRANS = str.maketrans("", "", string.punctuation)
 
 
 def resize_pil(img: Image.Image, size: int) -> Image.Image:
@@ -47,8 +50,8 @@ def pil_to_cv2(image: Image.Image) -> NDArray[np.uint8]:
 def decode_pil(image_bytes: bytes | IO[bytes] | Image.Image) -> Image.Image:
     if isinstance(image_bytes, Image.Image):
         return image_bytes
-    image = Image.open(BytesIO(image_bytes) if isinstance(image_bytes, bytes) else image_bytes)
-    image.load()  # type: ignore
+    image: Image.Image = Image.open(BytesIO(image_bytes) if isinstance(image_bytes, bytes) else image_bytes)
+    image.load()
     if not image.mode == "RGB":
         image = image.convert("RGB")
     return image
@@ -60,3 +63,16 @@ def decode_cv2(image_bytes: NDArray[np.uint8] | bytes | Image.Image) -> NDArray[
     if isinstance(image_bytes, Image.Image):
         return pil_to_cv2(image_bytes)
     return image_bytes
+
+
+def clean_text(text: str, canonicalize: bool = False) -> str:
+    text = " ".join(text.split())
+    if canonicalize:
+        text = text.translate(_PUNCTUATION_TRANS).lower()
+    return text
+
+
+# this allows the client to use the array as a string without deserializing only to serialize back to a string
+# TODO: use this in a less invasive way
+def serialize_np_array(arr: NDArray[np.float32]) -> str:
+    return orjson.dumps(arr, option=orjson.OPT_SERIALIZE_NUMPY).decode()

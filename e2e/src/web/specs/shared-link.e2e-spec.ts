@@ -6,7 +6,7 @@ import {
   SharedLinkType,
   createAlbum,
 } from '@immich/sdk';
-import { test } from '@playwright/test';
+import { expect, test } from '@playwright/test';
 import { asBearerAuth, utils } from 'src/utils';
 
 test.describe('Shared Links', () => {
@@ -44,9 +44,16 @@ test.describe('Shared Links', () => {
   test('download from a shared link', async ({ page }) => {
     await page.goto(`/share/${sharedLink.key}`);
     await page.getByRole('heading', { name: 'Test Album' }).waitFor();
-    await page.locator('.group > div').first().hover();
+    await page.locator(`[data-asset-id="${asset.id}"]`).hover();
     await page.waitForSelector('#asset-group-by-date svg');
     await page.getByRole('checkbox').click();
+    await page.getByRole('button', { name: 'Download' }).click();
+    await page.getByText('DOWNLOADING', { exact: true }).waitFor();
+  });
+
+  test('download all from shared link', async ({ page }) => {
+    await page.goto(`/share/${sharedLink.key}`);
+    await page.getByRole('heading', { name: 'Test Album' }).waitFor();
     await page.getByRole('button', { name: 'Download' }).click();
     await page.getByText('DOWNLOADING', { exact: true }).waitFor();
   });
@@ -58,8 +65,51 @@ test.describe('Shared Links', () => {
     await page.getByRole('heading', { name: 'Test Album' }).waitFor();
   });
 
+  test('show-password button visible', async ({ page }) => {
+    await page.goto(`/share/${sharedLinkPassword.key}`);
+    await page.getByPlaceholder('Password').fill('test-password');
+    await page.getByRole('button', { name: 'Show password' }).waitFor();
+  });
+
+  test('view password for shared link', async ({ page }) => {
+    await page.goto(`/share/${sharedLinkPassword.key}`);
+    const input = page.getByPlaceholder('Password');
+    await input.fill('test-password');
+    await page.getByRole('button', { name: 'Show password' }).click();
+    // await page.getByText('test-password', { exact: true }).waitFor();
+    await expect(input).toHaveAttribute('type', 'text');
+  });
+
+  test('hide-password button visible', async ({ page }) => {
+    await page.goto(`/share/${sharedLinkPassword.key}`);
+    const input = page.getByPlaceholder('Password');
+    await input.fill('test-password');
+    await page.getByRole('button', { name: 'Show password' }).click();
+    await page.getByRole('button', { name: 'Hide password' }).waitFor();
+  });
+
+  test('hide password for shared link', async ({ page }) => {
+    await page.goto(`/share/${sharedLinkPassword.key}`);
+    const input = page.getByPlaceholder('Password');
+    await input.fill('test-password');
+    await page.getByRole('button', { name: 'Show password' }).click();
+    await page.getByRole('button', { name: 'Hide password' }).click();
+    await expect(input).toHaveAttribute('type', 'password');
+  });
+
   test('show error for invalid shared link', async ({ page }) => {
     await page.goto('/share/invalid');
     await page.getByRole('heading', { name: 'Invalid share key' }).waitFor();
+  });
+
+  test('auth on navigation from shared link to timeline', async ({ context, page }) => {
+    await utils.setAuthCookies(context, admin.accessToken);
+
+    await page.goto(`/share/${sharedLink.key}`);
+    await page.getByRole('heading', { name: 'Test Album' }).waitFor();
+
+    await page.locator('a[href="/"]').click();
+    await page.waitForURL('/photos');
+    await page.locator(`[data-asset-id="${asset.id}"]`).waitFor();
   });
 });

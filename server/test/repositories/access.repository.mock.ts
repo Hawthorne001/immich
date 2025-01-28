@@ -1,23 +1,9 @@
-import { AccessCore } from 'src/cores/access.core';
-import { IAccessRepository } from 'src/interfaces/access.interface';
+import { IAccessRepository } from 'src/types';
 import { Mocked, vitest } from 'vitest';
 
-export interface IAccessRepositoryMock {
-  activity: Mocked<IAccessRepository['activity']>;
-  asset: Mocked<IAccessRepository['asset']>;
-  album: Mocked<IAccessRepository['album']>;
-  authDevice: Mocked<IAccessRepository['authDevice']>;
-  timeline: Mocked<IAccessRepository['timeline']>;
-  memory: Mocked<IAccessRepository['memory']>;
-  person: Mocked<IAccessRepository['person']>;
-  partner: Mocked<IAccessRepository['partner']>;
-}
+export type IAccessRepositoryMock = { [K in keyof IAccessRepository]: Mocked<IAccessRepository[K]> };
 
-export const newAccessRepositoryMock = (reset = true): IAccessRepositoryMock => {
-  if (reset) {
-    AccessCore.reset();
-  }
-
+export const newAccessRepositoryMock = (): IAccessRepositoryMock => {
   return {
     activity: {
       checkOwnerAccess: vitest.fn().mockResolvedValue(new Set()),
@@ -42,10 +28,6 @@ export const newAccessRepositoryMock = (reset = true): IAccessRepositoryMock => 
       checkOwnerAccess: vitest.fn().mockResolvedValue(new Set()),
     },
 
-    timeline: {
-      checkPartnerAccess: vitest.fn().mockResolvedValue(new Set()),
-    },
-
     memory: {
       checkOwnerAccess: vitest.fn().mockResolvedValue(new Set()),
     },
@@ -57,6 +39,18 @@ export const newAccessRepositoryMock = (reset = true): IAccessRepositoryMock => 
 
     partner: {
       checkUpdateAccess: vitest.fn().mockResolvedValue(new Set()),
+    },
+
+    stack: {
+      checkOwnerAccess: vitest.fn().mockResolvedValue(new Set()),
+    },
+
+    timeline: {
+      checkPartnerAccess: vitest.fn().mockResolvedValue(new Set()),
+    },
+
+    tag: {
+      checkOwnerAccess: vitest.fn().mockResolvedValue(new Set()),
     },
   };
 };

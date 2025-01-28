@@ -1,23 +1,21 @@
 import { BadRequestException } from '@nestjs/common';
 import { ReactionType } from 'src/dtos/activity.dto';
-import { IActivityRepository } from 'src/interfaces/activity.interface';
 import { ActivityService } from 'src/services/activity.service';
+import { IActivityRepository } from 'src/types';
 import { activityStub } from 'test/fixtures/activity.stub';
 import { authStub } from 'test/fixtures/auth.stub';
-import { IAccessRepositoryMock, newAccessRepositoryMock } from 'test/repositories/access.repository.mock';
-import { newActivityRepositoryMock } from 'test/repositories/activity.repository.mock';
+import { IAccessRepositoryMock } from 'test/repositories/access.repository.mock';
+import { newTestService } from 'test/utils';
 import { Mocked } from 'vitest';
 
 describe(ActivityService.name, () => {
   let sut: ActivityService;
+
   let accessMock: IAccessRepositoryMock;
   let activityMock: Mocked<IActivityRepository>;
 
   beforeEach(() => {
-    accessMock = newAccessRepositoryMock();
-    activityMock = newActivityRepositoryMock();
-
-    sut = new ActivityService(accessMock, activityMock);
+    ({ sut, accessMock, activityMock } = newTestService(ActivityService));
   });
 
   it('should work', () => {

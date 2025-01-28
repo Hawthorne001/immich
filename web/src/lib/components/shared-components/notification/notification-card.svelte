@@ -2,19 +2,25 @@
   import { fade } from 'svelte/transition';
   import Icon from '$lib/components/elements/icon.svelte';
   import {
-    type Notification,
+    isComponentNotification,
     notificationController,
     NotificationType,
+    type ComponentNotification,
+    type Notification,
   } from '$lib/components/shared-components/notification/notification';
   import { onMount } from 'svelte';
   import { mdiCloseCircleOutline, mdiInformationOutline, mdiWindowClose } from '@mdi/js';
   import CircleIconButton from '$lib/components/elements/buttons/circle-icon-button.svelte';
   import { t } from 'svelte-i18n';
 
-  export let notification: Notification;
+  interface Props {
+    notification: Notification | ComponentNotification;
+  }
 
-  $: icon = notification.type === NotificationType.Error ? mdiCloseCircleOutline : mdiInformationOutline;
-  $: hoverStyle = notification.action.type === 'discard' ? 'hover:cursor-pointer' : '';
+  let { notification }: Props = $props();
+
+  let icon = $derived(notification.type === NotificationType.Error ? mdiCloseCircleOutline : mdiInformationOutline);
+  let hoverStyle = $derived(notification.action.type === 'discard' ? 'hover:cursor-pointer' : '');
 
   const backgroundColor: Record<NotificationType, string> = {
     [NotificationType.Info]: '#E0E2F0',
@@ -64,20 +70,22 @@
   };
 </script>
 
-<!-- svelte-ignore a11y-no-static-element-interactions -->
+<!-- svelte-ignore a11y_no_static_element_interactions -->
 <div
   transition:fade={{ duration: 250 }}
   style:background-color={backgroundColor[notification.type]}
   style:border-color={borderColor[notification.type]}
   class="border z-[999999] mb-4 min-h-[80px] w-[300px] rounded-2xl p-4 shadow-md {hoverStyle}"
-  on:click={handleClick}
-  on:keydown={handleClick}
+  onclick={handleClick}
+  onkeydown={handleClick}
 >
   <div class="flex justify-between">
     <div class="flex place-items-center gap-2">
       <Icon path={icon} color={primaryColor[notification.type]} size="20" />
       <h2 style:color={primaryColor[notification.type]} class="font-medium" data-testid="title">
-        {notification.type.toString()}
+        {#if notification.type == NotificationType.Error}{$t('error')}
+        {:else if notification.type == NotificationType.Warning}{$t('warning')}
+        {:else if notification.type == NotificationType.Info}{$t('info')}{/if}
       </h2>
     </div>
     <CircleIconButton
@@ -86,14 +94,15 @@
       class="dark:text-immich-dark-gray"
       size="20"
       padding="2"
-      on:click={discard}
+      onclick={discard}
+      aria-hidden={true}
+      tabindex={-1}
     />
   </div>
 
   <p class="whitespace-pre-wrap pl-[28px] pr-[16px] text-sm" data-testid="message">
-    {#if notification.html}
-      <!-- eslint-disable-next-line svelte/no-at-html-tags -->
-      {@html notification.message}
+    {#if isComponentNotification(notification)}
+      <notification.component.type {...notification.component.props} />
     {:else}
       {notification.message}
     {/if}
@@ -104,7 +113,9 @@
       <button
         type="button"
         class="{buttonStyle[notification.type]} rounded px-3 pt-1.5 pb-1 transition-all duration-200"
-        on:click={handleButtonClick}
+        onclick={handleButtonClick}
+        aria-hidden="true"
+        tabindex={-1}
       >
         {notification.button.text}
       </button>

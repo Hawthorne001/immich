@@ -4,7 +4,6 @@ import {
   Get,
   HttpCode,
   HttpStatus,
-  Inject,
   Next,
   Param,
   ParseFilePipe,
@@ -32,20 +31,21 @@ import {
   CheckExistingAssetsDto,
   UploadFieldName,
 } from 'src/dtos/asset-media.dto';
-import { AuthDto, ImmichHeader } from 'src/dtos/auth.dto';
-import { ILoggerRepository } from 'src/interfaces/logger.interface';
+import { AuthDto } from 'src/dtos/auth.dto';
+import { ImmichHeader, RouteKey } from 'src/enum';
 import { AssetUploadInterceptor } from 'src/middleware/asset-upload.interceptor';
 import { Auth, Authenticated, FileResponse } from 'src/middleware/auth.guard';
-import { FileUploadInterceptor, Route, UploadFiles, getFiles } from 'src/middleware/file-upload.interceptor';
+import { FileUploadInterceptor, UploadFiles, getFiles } from 'src/middleware/file-upload.interceptor';
+import { LoggingRepository } from 'src/repositories/logging.repository';
 import { AssetMediaService } from 'src/services/asset-media.service';
 import { sendFile } from 'src/utils/file';
 import { FileNotEmptyValidator, UUIDParamDto } from 'src/validation';
 
 @ApiTags('Assets')
-@Controller(Route.ASSET)
+@Controller(RouteKey.ASSET)
 export class AssetMediaController {
   constructor(
-    @Inject(ILoggerRepository) private logger: ILoggerRepository,
+    private logger: LoggingRepository,
     private service: AssetMediaService,
   ) {}
 
@@ -93,8 +93,8 @@ export class AssetMediaController {
   @Put(':id/original')
   @UseInterceptors(FileUploadInterceptor)
   @ApiConsumes('multipart/form-data')
-  @Authenticated({ sharedLink: true })
   @EndpointLifecycle({ addedAt: 'v1.106.0' })
+  @Authenticated({ sharedLink: true })
   async replaceAsset(
     @Auth() auth: AuthDto,
     @Param() { id }: UUIDParamDto,

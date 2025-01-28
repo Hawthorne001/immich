@@ -1,11 +1,10 @@
-FROM node:iron-alpine3.18@sha256:53108f67824964a573ea435fed258f6cee4d88343e9859a99d356883e71b490c
+FROM node:22.13.1-alpine3.20@sha256:c52e20859a92b3eccbd3a36c5e1a90adc20617d8d421d65e8a622e87b5dac963
 
 RUN apk add --no-cache tini
 USER node
 WORKDIR /usr/src/app
 COPY --chown=node:node package*.json ./
 RUN npm ci
-COPY --chown=node:node . .
 ENV CHOKIDAR_USEPOLLING=true
 EXPOSE 24678
 EXPOSE 3000
